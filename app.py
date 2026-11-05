@@ -283,13 +283,20 @@ def main():
     except Exception:
         st.error('저장소에 연결하지 못했습니다. DATABASE_URL과 DB 권한을 확인하세요.')
         return
-    elder = st.toggle('👵 어르신 모드 · 큰 글씨 / 음성', value=False)
     st.markdown('''<style>
-    .block-container{max-width:520px;padding:0.65rem 0.8rem 0.5rem!important;}
-    [data-testid="stHeader"]{height:0;background:transparent;}
-    [data-testid="stToolbar"]{display:none;}
-    [data-testid="stVerticalBlock"]{gap:0.45rem;}
-    h1{font-size:1.45rem!important;padding:0!important;margin:0!important;}
+    .block-container{max-width:520px;padding:1.1rem 0.9rem 0.8rem!important;}
+    /* Hide the entire header, not just its painted height: prevents an invisible
+       header layer from intercepting taps on the first widget. */
+    [data-testid="stHeader"]{display:none!important;}
+    [data-testid="stToolbar"]{display:none!important;}
+    .app-heading{font-size:1.55rem;font-weight:800;line-height:1.45;
+        margin:0;padding:0;overflow-wrap:anywhere;color:var(--text-color);}
+    .app-notice{font-size:0.82rem;line-height:1.6;margin:6px 0 0;
+        padding:0;color:var(--text-color);opacity:0.82;overflow-wrap:anywhere;}
+    [data-testid="stCheckbox"] label{min-height:48px;align-items:center;
+        cursor:pointer;touch-action:manipulation;}
+    [data-testid="stCheckbox"] label p{line-height:1.5!important;}
+
     .hero{background:#e7f4ee;border:1px solid #badbcc;border-radius:18px;padding:12px 14px;color:#123b30;}
     .hero .name{font-size:1.25rem;font-weight:800;line-height:1.4;overflow-wrap:anywhere;}
     .hero .small{font-size:0.88rem;color:#355f50;line-height:1.5;overflow-wrap:anywhere;}
@@ -298,10 +305,14 @@ def main():
     button{min-height:42px!important;}
     [data-testid="stDialog"] [role="dialog"]{max-height:90dvh;overflow-y:auto;}
     </style>''', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="app-heading" role="heading" aria-level="1">💊 가족 약 지킴이</div>'
+        '<p class="app-notice">로그인 없는 체험용 · 실제 이름 대신 별칭을 사용하세요.</p>',
+        unsafe_allow_html=True,
+    )
+    elder = st.toggle('👵 어르신 모드 · 큰 글씨 / 음성', key='elder_mode')
     if elder:
-        st.markdown('<style>.hero .name{font-size:1.65rem}.hero .small{font-size:1.1rem} button p{font-size:1.12rem!important} [data-baseweb="select"]{font-size:1.12rem}</style>', unsafe_allow_html=True)
-    st.markdown('# 💊 가족 약 지킴이')
-    st.caption('체험용 · 로그인 없이 열립니다. 실제 개인정보 대신 별칭을 사용하세요.')
+        st.markdown('<style>.hero .name{font-size:1.65rem}.hero .small{font-size:1.1rem} .app-heading{font-size:1.75rem}.app-notice{font-size:1rem} button p{font-size:1.12rem!important} [data-baseweb="select"]{font-size:1.12rem}</style>', unsafe_allow_html=True)
     people = rows('SELECT * FROM fm_people ORDER BY name')
     if not people:
         st.info('가족과 약을 등록하면 오늘의 복용 일정이 표시됩니다.')
