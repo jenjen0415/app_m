@@ -4,7 +4,6 @@
 GitHub 저장소에는 이 파일과 requirements.txt 두 개만 올립니다.
 Streamlit Cloud: New app → 저장소 선택 → Main file path = app.py.
 Settings → Secrets 에 아래 값을 설정하세요(비밀번호는 GitHub에 올리지 마세요).
-APP_PASSWORD = "충분히-긴-가족전용-비밀번호"
 APP_URL = "https://실제주소.streamlit.app"
 # 선택, 권장: 영구 저장 가능한 PostgreSQL 연결 URL (TLS 사용)
 DATABASE_URL = "postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require"
@@ -13,9 +12,9 @@ DATABASE_URL = "postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require"
 DATABASE_URL 미설정 시 SQLite 데모 저장소입니다. 같은 서버의 브라우저들은
 공유하지만 Community Cloud의 재배포/재시작 시 데이터가 유실될 수 있습니다.
 PostgreSQL은 앱이 필요한 테이블을 자동 생성하므로 테이블 생성 권한이 필요합니다.
-DB/가족 비밀번호를 아는 사람은 가족 전체 정보를 볼 수 있습니다. 의료기록 서비스가
+이 버전은 비밀번호 없이 열리며 앱 주소를 아는 사람은 전체 정보를 조회·수정할 수 있습니다. 의료기록 서비스가
 아니며 실제 개인정보 사용 전 접근권한·DB 백업·서비스 보안정책을 검토하세요.
-QR에는 앱 주소만 담습니다. QR 스캔 후 가족 비밀번호로 접속합니다.
+QR에는 앱 주소만 담습니다. QR 스캔 후 바로 앱으로 접속합니다.
 브라우저가 닫히거나 휴대폰이 잠기면 자동 알림이 보장되지 않습니다.
 
 기능: 가족/약 등록, 매일 정해진 시각별 복용 기록, 유효기간 차단,
@@ -26,8 +25,6 @@ QR에는 앱 주소만 담습니다. QR 스캔 후 가족 비밀번호로 접속
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import html
 import io
 import json
@@ -274,34 +271,13 @@ def share_dialog():
         buffer = io.BytesIO()
         qrcode.make(url.strip()).save(buffer, format='PNG')
         st.image(buffer.getvalue(), width=220)
-        st.caption('휴대폰 카메라로 QR 스캔 → 가족 비밀번호로 접속. 비밀번호는 QR에 들어가지 않습니다.')
+        st.caption('휴대폰 카메라로 QR 스캔 → 바로 앱 접속. 앱 주소를 아는 사람은 정보를 보고 수정할 수 있습니다.')
     elif url:
         st.warning('로그인 정보·쿼리·# 없는 HTTPS 앱 주소를 입력하세요.')
     st.info('알림은 앱이 열린 동안 동작합니다. 잠금 화면·백그라운드 알림이 아닙니다.')
 
 
 def main():
-    password = setting('APP_PASSWORD')
-    if not password:
-        st.title('💊 가족 약 지킴이')
-        st.warning('먼저 앱 설정의 Secrets에 APP_PASSWORD를 설정하세요. 공개된 가족 의료정보를 보호하기 위해 비밀번호 없이는 실행하지 않습니다.')
-        st.code('APP_PASSWORD = "가족만-아는-긴-비밀번호"\nAPP_URL = "https://실제주소.streamlit.app"', language='toml')
-        st.caption('영구 저장은 DATABASE_URL도 설정하세요. 자세한 배포 설명은 app.py 상단에 있습니다.')
-        return
-    # 비밀번호를 변경하면 기존 로그인도 다시 요구합니다.
-    fingerprint = hashlib.sha256(password.encode()).hexdigest()
-    if st.session_state.get('auth') != fingerprint:
-        st.title('💊 가족 약 지킴이')
-        with st.form('login'):
-            entered = st.text_input('가족 비밀번호', type='password')
-            submit = st.form_submit_button('우리 가족 시작하기', use_container_width=True)
-        if submit:
-            if hmac.compare_digest(entered.encode(), password.encode()):
-                st.session_state.auth = fingerprint
-                st.rerun()
-            else:
-                st.error('비밀번호를 확인해 주세요.')
-        return
     try:
         initialize(DB_URL)
     except Exception:
@@ -325,6 +301,7 @@ def main():
     if elder:
         st.markdown('<style>.hero .name{font-size:1.65rem}.hero .small{font-size:1.1rem} button p{font-size:1.12rem!important} [data-baseweb="select"]{font-size:1.12rem}</style>', unsafe_allow_html=True)
     st.markdown('# 💊 가족 약 지킴이')
+    st.caption('체험용 · 로그인 없이 열립니다. 실제 개인정보 대신 별칭을 사용하세요.')
     people = rows('SELECT * FROM fm_people ORDER BY name')
     if not people:
         st.info('가족과 약을 등록하면 오늘의 복용 일정이 표시됩니다.')
