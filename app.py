@@ -120,13 +120,13 @@ def safe(text):
 def speech(text, automatic=False):
     # 실제 음성 재생은 휴대폰 브라우저의 음성 합성 기능을 사용합니다.
     encoded = json.dumps(text, ensure_ascii=False).replace('<', '\\u003c')
-    components.html('''<button id="s" style="width:100%;height:44px;border:0;border-radius:12px;
-    background:#e2f4ec;color:#114c38;font-size:18px;font-weight:700">🔊 눌러서 음성 안내</button>
+    components.html('''<button id="s" style="width:100%;min-height:64px;border:0;border-radius:12px;
+    background:#e2f4ec;color:#114c38;font-size:24px;font-weight:800">🔊 눌러서 음성 안내</button>
     <script>const text=TEXT;function speak(){if(!('speechSynthesis' in window)){
     document.getElementById('s').innerText='이 브라우저는 음성을 지원하지 않아요';return;}
     speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ko-KR';
     u.rate=0.85;speechSynthesis.speak(u);}document.getElementById('s').onclick=speak;
-    AUTO</script>'''.replace('TEXT', encoded).replace('AUTO', 'speak();' if automatic else ''), height=48)
+    AUTO</script>'''.replace('TEXT', encoded).replace('AUTO', 'speak();' if automatic else ''), height=76)
 
 
 def take(med_id, day, slot, duplicate_confirmed=False):
@@ -310,26 +310,74 @@ def main():
         '<p class="app-notice">로그인 없는 체험용 · 실제 이름 대신 별칭을 사용하세요.</p>',
         unsafe_allow_html=True,
     )
-    elder = st.toggle('👵 어르신 모드 · 큰 글씨 / 음성', key='elder_mode')
+    elder = st.toggle('👵 큰 글씨 · 음성 안내', key='elder_mode')
     if elder:
-        st.markdown('<style>.hero .name{font-size:1.65rem}.hero .small{font-size:1.1rem} .app-heading{font-size:1.75rem}.app-notice{font-size:1rem} button p{font-size:1.12rem!important} [data-baseweb="select"]{font-size:1.12rem}</style>', unsafe_allow_html=True)
+        st.markdown('''<style>
+        /* Accessible large-print layout. Do not force a fixed viewport height:
+           readable text and touch targets take priority over no scrolling. */
+        .block-container{max-width:620px;padding:1.2rem 1rem!important;}
+        [data-testid="stAppViewContainer"], [role="dialog"]{font-size:24px;}
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stCheckbox"] label p,
+        [data-testid="stAlert"] p{font-size:24px!important;line-height:1.65!important;}
+        [data-testid="stCaptionContainer"] p{font-size:20px!important;line-height:1.6!important;}
+        .app-heading{font-size:34px!important;line-height:1.45!important;}
+        .app-notice{font-size:20px!important;line-height:1.65!important;opacity:1;}
+        .hero{padding:22px 18px;border:2px solid #276749;border-radius:20px;}
+        .hero .name{font-size:36px!important;line-height:1.5!important;color:#102e24;}
+        .hero .small{font-size:26px!important;line-height:1.75!important;color:#173e2f;}
+        .badge{font-size:24px!important;font-weight:800;line-height:1.6;
+            padding:8px 12px;margin-bottom:12px;white-space:normal;}
+        .foot{font-size:20px!important;line-height:1.7!important;color:var(--text-color);}
+        [data-testid="stButton"] button,
+        [data-testid="stFormSubmitButton"] button{
+            min-height:68px!important;padding:14px 16px!important;border-width:2px!important;
+            border-radius:14px!important;touch-action:manipulation;}
+        [data-testid="stButton"] button p,
+        [data-testid="stFormSubmitButton"] button p{
+            font-size:26px!important;font-weight:750!important;line-height:1.4!important;}
+        [data-testid="stBaseButton-primary"]{background:#125b3d!important;color:#fff!important;}
+        [data-testid="stCheckbox"] label{min-height:64px!important;padding:8px 0!important;}
+        [data-baseweb="select"] > div{min-height:64px!important;}
+        [data-baseweb="select"] div,
+        [data-baseweb="popover"] li,
+        [role="option"]{font-size:24px!important;line-height:1.5!important;}
+        [role="option"]{padding-top:14px!important;padding-bottom:14px!important;}
+        input,textarea{font-size:24px!important;line-height:1.5!important;min-height:56px;}
+        [role="tab"]{min-height:60px!important;}
+        [role="tab"] p{font-size:24px!important;}
+        button:focus-visible,input:focus-visible{outline:4px solid #c17a00!important;outline-offset:3px;}
+        </style>''', unsafe_allow_html=True)
     people = rows('SELECT * FROM fm_people ORDER BY name')
     if not people:
         st.info('가족과 약을 등록하면 오늘의 복용 일정이 표시됩니다.')
         if st.button('＋ 첫 가족 · 약 등록', type='primary', use_container_width=True):
             registration()
     else:
-        person = st.selectbox('가족 선택', people, format_func=lambda p: '👤 ' + p['name'], label_visibility='collapsed')
+        person = st.selectbox('누가 드실 약인가요?', people, format_func=lambda p: '👤 ' + p['name'], label_visibility='visible' if elder else 'collapsed')
         dashboard(person['id'], elder)
-    c1, c2, c3, c4 = st.columns(4)
-    if c1.button('＋등록', use_container_width=True):
-        registration()
-    if c2.button('상비약', use_container_width=True):
-        inventory()
-    if c3.button('기록', use_container_width=True):
-        history_dialog()
-    if c4.button('QR', use_container_width=True):
-        share_dialog()
+    if elder:
+        # One full-width control per row: no cramped four-column buttons.
+        if st.button('＋ 가족 · 약 등록', use_container_width=True):
+            registration()
+        if st.button('💊 보관 중인 약 보기', use_container_width=True):
+            inventory()
+        if st.button('📋 먹은 기록 보기', use_container_width=True):
+            history_dialog()
+        if st.button('📷 가족 초대 QR', use_container_width=True):
+            share_dialog()
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        if c1.button('＋등록', use_container_width=True):
+            registration()
+        if c2.button('상비약', use_container_width=True):
+            inventory()
+        if c3.button('기록', use_container_width=True):
+            history_dialog()
+        if c4.button('QR', use_container_width=True):
+            share_dialog()
     storage = '영구 DB 연결' if PG else '데모 저장 · 재시작 시 유실 가능'
     st.markdown(f'<div class="foot">{storage} · 한국 시간 · 열린 화면에서 20초마다 확인<br>처방을 대체하지 않습니다. 성분·상호작용 전체 판별 불가.</div>', unsafe_allow_html=True)
 
@@ -363,7 +411,7 @@ def dashboard(person_id, elder):
         return
     # 한 회차씩 선택하므로 약이 많아져도 본문 길이가 늘어나지 않습니다.
     ordered = pending + [s for s in slots if s['done']]
-    selected = st.selectbox('복용 회차', ordered,
+    selected = st.selectbox('드실 약과 시간을 고르세요' if elder else '복용 회차', ordered,
         format_func=lambda s: f"{'✅' if s['done'] else '🕒'} {s['time']} · {s['m']['name']}", key=f'slot_{person_id}_{today}')
     m, slot = selected['m'], selected['time']
     expired_selected = m['expiry'] < today
