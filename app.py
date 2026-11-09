@@ -411,6 +411,29 @@ def missed_history():
 def home_screen(elder):
     st.markdown("""<style>
     :root{--ink:#163047;--accent:#176f70;}
+    /* Explicit contrast for browser/Streamlit dark-theme inheritance. */
+    [data-testid="stAppViewContainer"]{color:#163047!important;color-scheme:light;}
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stCheckbox"] label p,
+    [data-testid="stToggle"] label p,
+    [data-testid="stCaptionContainer"] p,
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary p,
+    [data-testid="stExpander"] summary span,
+    [data-testid="stExpander"] summary svg{color:#163047!important;opacity:1!important;}
+    [data-testid="stExpander"]{background:#fff!important;border-color:#c6d5df!important;}
+    [data-testid="stCheckbox"], [data-testid="stToggle"]{background:#edf4f6!important;
+      border-radius:12px;padding:8px 12px;color:#163047!important;}
+    [data-testid="stWidgetLabel"]{color:#163047!important;}
+    [data-testid="stBaseButton-secondary"] p{color:#163047!important;}
+    [data-testid="stBaseButton-primary"] p{color:#fff!important;}
+    [data-baseweb="select"] > div{background:#fff!important;color:#163047!important;}
+    [data-baseweb="select"] span,[data-baseweb="select"] input{color:#163047!important;}
+    [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea{
+      background:#fff!important;color:#163047!important;-webkit-text-fill-color:#163047!important;}
+    [role="dialog"]{background:#f3f6f8!important;color:#163047!important;}
+    [role="dialog"] [data-testid="stMarkdownContainer"]{color:#163047!important;}
+
     [data-testid="stAppViewContainer"]{background:#f3f6f8;}
     .block-container{max-width:580px;}
     .app-heading{color:#163047;letter-spacing:-.6px;}
@@ -460,6 +483,8 @@ def home_screen(elder):
         st.session_state.page='오늘 약 먹기';st.rerun()
     if st.button(f'🕒  놓친 약 확인 · {len(pending)}건',use_container_width=True):
         st.session_state.page='놓친 약 확인';st.rerun()
+    if st.button('＋ 가족 · 약 등록', key='home_registration', use_container_width=True):
+        registration()
     c1,c2=st.columns(2)
     if c1.button('🧰 약 보관함',use_container_width=True):
         st.session_state.page='약 보관함';st.rerun()
