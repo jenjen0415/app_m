@@ -411,6 +411,32 @@ def missed_history():
 def home_screen(elder):
     st.markdown("""<style>
     :root{--ink:#163047;--accent:#176f70;}
+    /* All ordinary text is dark, including radio labels inherited from dark theme. */
+    [data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"],
+    [data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stAppViewContainer"] h1,
+    [data-testid="stAppViewContainer"] h2,
+    [data-testid="stAppViewContainer"] h3,
+    [data-testid="stRadio"] label,
+    [data-testid="stRadio"] label p,
+    [data-testid="stRadio"] label span,
+    [data-testid="stCheckbox"] label span,
+    [data-testid="stToggle"] label span,
+    [data-testid="stExpander"] summary *{
+      color:#163047!important;opacity:1!important;-webkit-text-fill-color:#163047!important;}
+    [data-testid="stRadio"]{background:#fff!important;padding:12px;border-radius:12px;}
+    [data-testid="stRadio"] label{min-height:44px;padding:5px 0;}
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button,
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button p,
+    [data-testid="stAppViewContainer"] [data-testid="stFormSubmitButton"] button,
+    [data-testid="stAppViewContainer"] [data-testid="stFormSubmitButton"] button p{
+      background:#e7f1f1!important;color:#143e44!important;
+      -webkit-text-fill-color:#143e44!important;border-color:#acc7ca!important;}
+    [data-testid="stAppViewContainer"] [data-testid="stBaseButton-primary"]{
+      border:2px solid #176f70!important;}
+    [data-baseweb="popover"],[role="listbox"],[role="option"]{
+      background:#fff!important;color:#163047!important;}
+    [role="option"] *{color:#163047!important;-webkit-text-fill-color:#163047!important;}
     /* Explicit contrast for browser/Streamlit dark-theme inheritance. */
     [data-testid="stAppViewContainer"]{color:#163047!important;color-scheme:light;}
     [data-testid="stWidgetLabel"] p,
@@ -446,9 +472,9 @@ def home_screen(elder):
       min-height:58px;background:#fff;color:#163047;box-shadow:0 2px 5px #16304705;}
     [data-testid="stBaseButton-primary"]{background:#176f70!important;color:white!important;border-color:#176f70!important;}
     [data-testid="stButton"] button p{font-weight:650;}
-    .home-summary{background:#163047;color:white;border-radius:18px;padding:22px;margin:12px 0 20px;}
-    .home-summary h2{color:white;margin:0;font-size:28px;line-height:1.5;}
-    .home-summary p{margin:8px 0 0;color:#dfebf0;line-height:1.6;}
+    .home-summary{background:#e7eef3;color:#163047;border-radius:18px;padding:22px;margin:12px 0 20px;}
+    .home-summary h2{color:#163047;margin:0;font-size:28px;line-height:1.5;}
+    .home-summary p{margin:8px 0 0;color:#324e61;line-height:1.6;}
     </style>""", unsafe_allow_html=True)
     page=st.session_state.get('page','홈')
     if page != '홈':
@@ -478,7 +504,7 @@ def home_screen(elder):
     today=now().date().isoformat()
     done=rows('SELECT id FROM fm_logs WHERE day=?',(today,))
     pending=unresolved_slots()
-    st.markdown(f'<div class="home-summary"><h2>오늘도, 잊지 않도록.</h2><p>오늘 복용 기록 {len(done)}회 · 확인이 필요한 일정 {len(pending)}건</p></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="home-summary"><h2>오늘 복용 현황</h2><p>오늘 복용 기록 {len(done)}회 · 확인이 필요한 일정 {len(pending)}건</p></div>',unsafe_allow_html=True)
     if st.button('💊  오늘 약 먹기',type='primary',use_container_width=True):
         st.session_state.page='오늘 약 먹기';st.rerun()
     if st.button(f'🕒  놓친 약 확인 · {len(pending)}건',use_container_width=True):
