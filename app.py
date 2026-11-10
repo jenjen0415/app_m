@@ -416,6 +416,23 @@ def home_screen(elder):
     [data-testid="stAlert"] *{color:#163047!important;-webkit-text-fill-color:#163047!important;}
     [data-testid="stAppViewContainer"] [data-testid="stButton"] button:disabled{
       opacity:0.55!important;cursor:not-allowed!important;box-shadow:none!important;}
+    /* Set the actual inner alert surface, not only its outer wrapper. */
+    [data-testid="stAlert"],
+    [data-testid="stAlertContainer"],
+    [data-testid="stAlert"] > div,
+    [data-testid="stAlert"] [role="alert"]{
+      background:#fff2cf!important;background-color:#fff2cf!important;
+      color:#163047!important;border-color:#d8bd78!important;color-scheme:light;}
+    [data-testid="stAlert"] p,
+    [data-testid="stAlert"] span,
+    [data-testid="stAlert"] svg,
+    [data-testid="stAlertContainer"] p{
+      color:#163047!important;-webkit-text-fill-color:#163047!important;opacity:1!important;}
+    .safety-note{background:#fff2cf!important;color:#163047!important;
+      border:1px solid #d8bd78;border-left:5px solid #a46b00;
+      border-radius:14px;padding:18px 20px;margin:14px 0;
+      font-size:20px;line-height:1.65;overflow-wrap:anywhere;}
+    .safety-note *{color:#163047!important;-webkit-text-fill-color:#163047!important;}
     /* All ordinary text is dark, including radio labels inherited from dark theme. */
     [data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"],
     [data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] p,
@@ -573,7 +590,7 @@ def missed_flow(elder):
         item=st.selectbox('어떤 약인가요?',options,format_func=lambda x:f"{x['day']} {x['slot']} · {x['m']['person']} · {x['m']['name']}")
     m=item['m'];day=item['day'];slot=item['slot'];key=f"{m['id']}_{day}_{slot}"
     st.markdown(f'<div class="hero"><span class="badge">{safe(day)} · {safe(slot)}</span><div class="name">{safe(m["name"])}</div><div class="small">{safe(m["person"])} · {safe(m["dose"])}</div></div>',unsafe_allow_html=True)
-    st.warning('두 회분을 한꺼번에 먹지 마세요. 지금 먹어도 되는지는 약 봉투의 안내나 약사에게 확인하세요.')
+    st.markdown('<div class="safety-note" role="note">두 회분을 한꺼번에 먹지 마세요. 지금 먹어도 되는지는 약 봉투의 안내나 약사에게 확인하세요.</div>',unsafe_allow_html=True)
     recorded=bool(item['follow'])
     if st.button('못 먹었어요 · 기록하기' if not recorded else '확인 대기로 기록됨',type='primary',use_container_width=True,disabled=recorded):
         if day==now().date().isoformat():
