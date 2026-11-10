@@ -313,11 +313,15 @@ def main():
     button{min-height:42px!important;}
     [data-testid="stDialog"] [role="dialog"]{max-height:90dvh;overflow-y:auto;}
     </style>''', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="app-heading" role="heading" aria-level="1">💊 가족 약 지킴이</div>'
-        '<p class="app-notice">로그인 없는 체험용 · 실제 이름 대신 별칭을 사용하세요.</p>',
-        unsafe_allow_html=True,
-    )
+    # Compact app mark, no title or subtitle; embedded vector needs no extra file.
+    st.markdown('''<div style="display:flex;justify-content:center;padding:8px 0 14px;">
+    <svg width="68" height="68" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">
+    <rect width="68" height="68" rx="20" fill="#176f70"/>
+    <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
+    <rect x="29" y="30" width="10" height="20" rx="5" transform="rotate(35 34 40)" fill="#fff"/>
+    <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/>
+    </svg></div>''', unsafe_allow_html=True)
     elder = st.toggle('👵 큰 글씨 · 음성 안내', key='elder_mode')
     if elder:
         st.markdown('''<style>
@@ -360,7 +364,8 @@ def main():
         </style>''', unsafe_allow_html=True)
     home_screen(elder)
     storage = '영구 DB 연결' if PG else '데모 저장 · 재시작 시 유실 가능'
-    st.markdown(f'<div class="foot">{storage} · 한국 시간 · 열린 화면에서 20초마다 확인<br>처방을 대체하지 않습니다. 성분·상호작용 전체 판별 불가.</div>', unsafe_allow_html=True)
+    with st.expander('ⓘ 안전 · 저장 안내'):
+        st.caption(f'{storage} · 한국 시간 · 열린 화면에서만 일정 확인. 처방을 대체하지 않으며 약물 상호작용 전체를 판별하지 않습니다.')
 
 
 
@@ -498,49 +503,63 @@ def home_screen(elder):
     .home-summary h2{color:#163047;margin:0;font-size:28px;line-height:1.5;}
     .home-summary p{margin:8px 0 0;color:#324e61;line-height:1.6;}
     </style>""", unsafe_allow_html=True)
-    page=st.session_state.get('page','홈')
-    if page != '홈':
-        if st.button('← 홈으로',use_container_width=True):
-            st.session_state.page='홈';st.rerun()
-        if page=='오늘 약 먹기':
-            people=rows('SELECT * FROM fm_people ORDER BY name')
-            if people:
-                person=people[0] if len(people)==1 else st.selectbox('가족',people,format_func=lambda p:p['name'])
-                dashboard(person['id'],elder)
-            else:
-                st.info('처음이시군요. 가족과 약부터 등록해 주세요.')
-                if st.button('가족 · 약 등록',type='primary'):registration()
-        elif page=='놓친 약 확인':
-            missed_flow(elder)
-        elif page=='약 보관함':
-            st.subheader('우리 집 약 보관함')
+    st.markdown("""<style>
+    .block-container{padding-bottom:125px!important;}
+    .st-key-bottom_nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+      width:min(100%,580px);z-index:990;background:#fff!important;
+      border-top:1px solid #c8d9de;padding:10px 10px max(12px,env(safe-area-inset-bottom));
+      box-shadow:0 -4px 18px #16304712;}
+    .st-key-bottom_nav [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:6px;}
+    .st-key-bottom_nav [data-testid="stColumn"]{min-width:0!important;flex:1!important;}
+    .st-key-bottom_nav button{min-height:58px!important;padding:6px 2px!important;}
+    .st-key-bottom_nav button p{font-size:16px!important;line-height:1.4!important;}
+    </style>""",unsafe_allow_html=True)
+    page=st.session_state.get('page','오늘 약 먹기')
+    if page=='홈':page='오늘 약 먹기'
+    active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
+    with st.container(key='bottom_nav'):
+        cols=st.columns(4)
+        for col,icon,label,target in zip(cols,['💊','🧰','📋','👪'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
+            if col.button(icon+' '+label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
+                st.session_state.page=target;st.rerun()
+    if page=='오늘 약 먹기':
+        title,add=st.columns([3,1])
+        title.subheader('오늘')
+        if add.button('＋ 등록',key='quick_add',use_container_width=True):registration()
+        people=rows('SELECT * FROM fm_people ORDER BY name')
+        if not people:
+            st.info('먼저 가족과 약을 등록하세요.')
             if st.button('＋ 가족 · 약 등록',type='primary',use_container_width=True):registration()
-            if st.button('약 목록 · 유효기간 확인',use_container_width=True):inventory()
-            if st.button('등록 가족 보기',use_container_width=True):family_list()
-        elif page=='기록':
-            st.subheader('복용과 확인 기록')
-            if st.button('먹은 기록 보기',use_container_width=True):history_dialog()
-            with st.expander('놓친 약 · 후속 조치 기록'):
-                followup_history()
-        return
-    today=now().date().isoformat()
-    done=rows('SELECT id FROM fm_logs WHERE day=?',(today,))
-    pending=unresolved_slots()
-    st.markdown(f'<div class="home-summary"><h2>오늘 복용 현황</h2><p>오늘 복용 기록 {len(done)}회 · 확인이 필요한 일정 {len(pending)}건</p></div>',unsafe_allow_html=True)
-    if st.button('💊  오늘 약 먹기',type='primary',use_container_width=True):
-        st.session_state.page='오늘 약 먹기';st.rerun()
-    if st.button(f'🕒  놓친 약 확인 · {len(pending)}건',use_container_width=True):
-        st.session_state.page='놓친 약 확인';st.rerun()
-    if st.button('＋ 가족 · 약 등록', key='home_registration', use_container_width=True):
-        registration()
-    c1,c2=st.columns(2)
-    if c1.button('🧰 약 보관함',use_container_width=True):
-        st.session_state.page='약 보관함';st.rerun()
-    if c2.button('📋 기록',use_container_width=True):
-        st.session_state.page='기록';st.rerun()
-    with st.expander('가족 초대 · 사용 안내'):
-        if st.button('QR로 가족 초대'):share_dialog()
-        st.caption('복용 시각이 지나도 실제 미복용인지는 알 수 없습니다. 가족과 확인해 주세요. 앱 종료·화면 잠금 중 알림은 보장되지 않습니다.')
+        else:
+            person=people[0] if len(people)==1 else st.selectbox('가족',people,format_func=lambda p:p['name'])
+            dashboard(person['id'],elder)
+    elif page=='놓친 약 확인':
+        if st.button('← 오늘',key='back_today'):
+            st.session_state.page='오늘 약 먹기';st.rerun()
+        missed_flow(elder)
+    elif page=='약 보관함':
+        st.subheader('약통')
+        c1,c2=st.columns(2)
+        if c1.button('＋ 약 등록',use_container_width=True):registration()
+        if c2.button('💊 목록 보기',use_container_width=True):inventory()
+        meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id ORDER BY m.expiry')
+        if not meds:st.info('등록한 약이 없습니다.')
+        for m in meds:
+            expired=m['expiry']<now().date().isoformat()
+            st.markdown(f'<div class="hero"><div class="name">{safe(m["name"])}</div><div class="small">{safe(m["person"])} · {safe(m["dose"])}<br>{"⛔ 기한 지남" if expired else "📅 유효기간"} {safe(m["expiry"])}</div></div>',unsafe_allow_html=True)
+    elif page=='기록':
+        st.subheader('기록')
+        if st.button('✅ 먹은 기록',use_container_width=True):history_dialog()
+        with st.expander('🕒 못 먹은 기록'):followup_history()
+    else:
+        st.subheader('가족')
+        if st.button('＋ 가족 · 약 등록',use_container_width=True):registration()
+        people=rows('SELECT * FROM fm_people ORDER BY name')
+        for person in people:st.write('👤 '+person['name'])
+        if st.button('📷 초대 QR',use_container_width=True):share_dialog()
+        with st.expander('사용 안내'):
+            st.write('오늘: 복용 확인 · 약통: 약 관리 · 기록: 복용 내역 · 가족: 등록과 초대')
+            st.caption('로그인 없는 체험용입니다. 주소를 아는 사람은 기록을 수정할 수 있습니다. 별칭을 사용하세요. 앱 종료·화면 잠금 중 알림은 보장되지 않습니다.')
 
 
 def unresolved_slots():
