@@ -316,14 +316,14 @@ def main():
     if not st.session_state.get('launch_seen', False):
         st.session_state.launch_seen = True
         st.markdown('''<style>
-        .launch-screen{position:fixed;inset:0;background:#f3f6f8;z-index:999990;
+        .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990;
           display:flex;align-items:center;justify-content:center;
-          animation:launch-out 1.15s forwards;pointer-events:none;}
-        .launch-screen svg{width:104px;height:104px;}
+          animation:launch-out 1.8s forwards;pointer-events:none;}
+        .launch-screen svg{width:64px;height:64px;display:block;flex:none;overflow:visible;}
         @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}}
         @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}}
         </style><div class="launch-screen" aria-label="앱 시작"><svg width="68" height="68" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">
-    <rect width="68" height="68" rx="20" fill="#176f70"/>
+    
     <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
     <rect x="29" y="30" width="10" height="20" rx="5" transform="rotate(35 34 40)" fill="#fff"/>
@@ -516,6 +516,7 @@ def home_screen(elder):
       width:min(100%,580px);z-index:990;background:#fff!important;
       border-top:1px solid #c8d9de;padding:10px 10px max(12px,env(safe-area-inset-bottom));
       box-shadow:0 -4px 18px #16304712;}
+    .st-key-bottom_nav .bottom-brand svg{display:block!important;flex:0 0 42px!important;width:42px!important;height:42px!important;max-width:none!important;overflow:visible!important;margin:0 auto!important;}
     .st-key-bottom_nav [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:6px;}
     .st-key-bottom_nav [data-testid="stColumn"]{min-width:0!important;flex:1!important;}
     .st-key-bottom_nav button{min-height:58px!important;padding:6px 2px!important;}
@@ -525,7 +526,7 @@ def home_screen(elder):
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
     with st.container(key='bottom_nav'):
-        st.markdown('''<div style="display:flex;justify-content:center;padding:0 0 6px;"><svg width="42" height="42" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">
+        st.markdown('''<div class="bottom-brand" style="display:flex;align-items:center;justify-content:center;width:100%;padding:0 0 6px;line-height:0;"><svg width="42" height="42" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">
     <rect width="42" height="42" rx="20" fill="#176f70"/>
     <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
