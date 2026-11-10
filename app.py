@@ -411,6 +411,11 @@ def missed_history():
 def home_screen(elder):
     st.markdown("""<style>
     :root{--ink:#163047;--accent:#176f70;}
+    [data-testid="stAlert"]{background:#fff3d8!important;color:#163047!important;
+      border:1px solid #dfc889!important;border-radius:12px;}
+    [data-testid="stAlert"] *{color:#163047!important;-webkit-text-fill-color:#163047!important;}
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button:disabled{
+      opacity:0.55!important;cursor:not-allowed!important;box-shadow:none!important;}
     /* All ordinary text is dark, including radio labels inherited from dark theme. */
     [data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"],
     [data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] p,
@@ -483,7 +488,7 @@ def home_screen(elder):
         if page=='오늘 약 먹기':
             people=rows('SELECT * FROM fm_people ORDER BY name')
             if people:
-                person=st.selectbox('가족',people,format_func=lambda p:p['name'])
+                person=people[0] if len(people)==1 else st.selectbox('가족',people,format_func=lambda p:p['name'])
                 dashboard(person['id'],elder)
             else:
                 st.info('처음이시군요. 가족과 약부터 등록해 주세요.')
@@ -555,47 +560,56 @@ def save_followup(med_id,day,slot,action,guidance,source):
 
 
 def missed_flow(elder):
-    st.subheader('놓친 약, 차근차근 확인해요')
+    st.subheader('못 먹었어요')
+    if st.session_state.pop('simple_saved',False):
+        st.success('확인 결과를 저장했습니다.')
     options=unresolved_slots()
     if not options:
-        st.success('현재 확인이 필요한 일정이 없습니다.');return
-    item=st.selectbox('확인할 약',options,format_func=lambda x:f"{x['day']} {x['slot']} · {x['m']['person']} · {x['m']['name']}")
-    m=item['m'];day=item['day'];slot=item['slot'];key=f"{m['id']}_{day}_{slot}"
-    st.caption('복용 기록이 없는 일정입니다. 실제로 안 드셨다는 뜻은 아닙니다.')
-    status=st.radio('1. 지금 어떤 상황인가요?', ['선택해 주세요','먹었는지 확실하지 않아요','깜빡해서 못 먹었어요','사정상 먹지 못했어요','이미 먹었지만 기록하지 않았어요'],key='triage_'+key)
-    if status=='선택해 주세요':return
-    if status=='이미 먹었지만 기록하지 않았어요':
-        st.info('추가로 먹지 말고 실제로 먹은 시각을 확인하세요. 오늘 약 먹기에서 기록하면 저장 시각이 남습니다. 과거 시각의 복용 기록으로 소급되지는 않습니다.')
-        if st.button('오늘 약 먹기로 이동',use_container_width=True):
-            st.session_state.page='오늘 약 먹기';st.rerun()
-        return
-    if status=='먹었는지 확실하지 않아요':
-        st.warning('우선 약 봉투·약통과 가족의 기록을 확인하세요. 확실하지 않은 상태에서 추가 복용하지 말고 약사·의료진에게 확인하세요.')
+        st.success('확인할 일정이 없습니다.');return
+    # A single schedule needs no selector.
+    if len(options)==1:
+        item=options[0]
     else:
-        st.info('못 먹은 사유만으로 지금 복용해도 되는지 판단할 수 없습니다.')
-    times=sorted(json.loads(m['times']))
-    future=[datetime.combine(now().date()+timedelta(days=d),datetime.strptime(t,'%H:%M').time(),TZ) for d in (0,1) for t in times]
-    nxt=min((t for t in future if t>now()),default=None)
-    if nxt:st.caption('다음 등록 일정: '+nxt.strftime('%m월 %d일 %H:%M')+' · 다음 시각이 가깝다는 이유만으로 건너뛰기를 자동 판단하지 않습니다.')
-    st.markdown('**2. 약별 안내를 확인하세요**')
-    st.write('약 봉투·처방전의 놓쳤을 때 안내를 확인하거나 약사·처방 의료진에게 문의하세요. 두 회분을 한꺼번에 먹거나 용량을 임의로 늘리지 마세요.')
-    st.caption('상담 시 전달: '+m['name']+' / '+m['dose']+' / 놓친 시각 '+day+' '+slot+' / 다음 일정 및 마지막 실제 복용 시각')
-    with st.expander('갑자기 몸이 좋지 않다면'):
-        st.write('호흡곤란·의식 저하 등 응급 증상이 있으면 앱 기록보다 119 또는 응급 진료가 우선입니다. 약을 먹기 어려운 상태가 지속되거나 중요한 약을 놓쳤다면 의료진에게 신속히 문의하세요.')
-    st.markdown('**3. 확인한 후속 조치를 남겨주세요**')
-    action_label=st.selectbox('확인 결과',['아직 확인 중이에요','확인한 안내에 따라 이번 회차를 건너뛰어요','확인한 안내에 따라 복용했어요','기록·가족 확인으로 정리됐어요'],key='action_'+key)
-    source=st.text_input('확인한 곳 (예: 약 봉투, ○○약국)',max_chars=120,key='source_'+key)
-    guidance=st.text_area('확인 내용 · 실제 복용 시각 등',max_chars=800,key='guidance_'+key)
-    confirmed=st.checkbox('제가 확인한 내용을 기록합니다. 앱이 복용 여부를 판단한 것은 아닙니다.',key='ack_'+key)
-    if st.button('확인 내용 저장',type='primary',use_container_width=True,disabled=not confirmed):
-        action=['확인 대기','안내 확인 후 건너뜀','안내 확인 후 복용 보고','기록 확인 완료'][['아직 확인 중이에요','확인한 안내에 따라 이번 회차를 건너뛰어요','확인한 안내에 따라 복용했어요','기록·가족 확인으로 정리됐어요'].index(action_label)]
-        if day==now().date().isoformat() and status in ['깜빡해서 못 먹었어요','사정상 먹지 못했어요']:
-            save_missed(m['id'],day,slot,'깜빡했어요' if status.startswith('깜빡') else '사정상 못 먹었어요','후속 조치 화면에서 기록')
-        ok,msg=save_followup(m['id'],day,slot,action,guidance,source)
+        item=st.selectbox('어떤 약인가요?',options,format_func=lambda x:f"{x['day']} {x['slot']} · {x['m']['person']} · {x['m']['name']}")
+    m=item['m'];day=item['day'];slot=item['slot'];key=f"{m['id']}_{day}_{slot}"
+    st.markdown(f'<div class="hero"><span class="badge">{safe(day)} · {safe(slot)}</span><div class="name">{safe(m["name"])}</div><div class="small">{safe(m["person"])} · {safe(m["dose"])}</div></div>',unsafe_allow_html=True)
+    st.warning('두 회분을 한꺼번에 먹지 마세요. 지금 먹어도 되는지는 약 봉투의 안내나 약사에게 확인하세요.')
+    recorded=bool(item['follow'])
+    if st.button('못 먹었어요 · 기록하기' if not recorded else '확인 대기로 기록됨',type='primary',use_container_width=True,disabled=recorded):
+        if day==now().date().isoformat():
+            ok,msg=save_missed(m['id'],day,slot,'사정상 못 먹었어요','간편 기록')
+            if not ok:
+                st.warning(msg);return
+        ok,msg=save_followup(m['id'],day,slot,'확인 대기','','')
         if ok:
-            st.success('저장했습니다. 확인 중인 건은 목록에 남고, 확인이 끝난 건은 기록에서 볼 수 있습니다. 실제 복용 기록은 자동 생성되지 않습니다.')
+            st.rerun()
         else:st.warning(msg)
-    if elder:speech('놓친 약은 임의로 두 번 먹지 마세요. 약별 안내나 약사에게 확인하고 확인 내용을 남겨주세요.')
+    st.caption('복용 완료가 아니라 확인 대기로 남습니다. 먹었는지 불확실하면 추가 복용 전에 가족·약사에게 확인하세요.')
+    times=sorted(json.loads(m['times']))
+    current=now()
+    future=[datetime.combine(current.date()+timedelta(days=d),datetime.strptime(t,'%H:%M').time(),TZ) for d in (0,1) for t in times]
+    nxt=min((t for t in future if t>current),default=None)
+    if nxt:st.caption('다음 등록 시각: '+nxt.strftime('%m월 %d일 %H:%M')+' (복용 지시가 아닙니다)')
+    with st.expander('약사에게 확인했거나, 이미 먹었다면'):
+        st.caption('이미 먹었다면 추가로 먹지 마세요. 오늘 복용 화면에서 기록을 확인할 수 있습니다.')
+        if st.button('오늘 복용으로 이동',key='to_today_'+key,use_container_width=True):
+            st.session_state.page='오늘 약 먹기';st.rerun()
+        with st.form('follow_form_'+key):
+            result=st.selectbox('확인한 결과',['안내에 따라 건너뜀','안내에 따라 복용함','가족·기록으로 확인 완료'])
+            detail=st.text_input('어디서 무엇을 확인했나요?',placeholder='확인한 곳과 안내 내용을 함께 적어 주세요.',max_chars=800)
+            submitted=st.form_submit_button('확인 결과 저장',use_container_width=True)
+        if submitted:
+            if not detail.strip():
+                st.warning('확인한 곳과 내용을 한 줄로 적어 주세요.')
+            else:
+                action={'안내에 따라 건너뜀':'안내 확인 후 건너뜀','안내에 따라 복용함':'안내 확인 후 복용 보고','가족·기록으로 확인 완료':'기록 확인 완료'}[result]
+                ok,msg=save_followup(m['id'],day,slot,action,detail,'사용자 입력: '+detail[:100])
+                if ok:
+                    st.session_state.simple_saved=True
+                    st.rerun()
+                else:st.warning(msg)
+        st.caption('후속 조치는 사용자 확인 내용이며 실제 복용 기록은 자동 생성되지 않습니다.')
+    if elder:speech('못 먹었다면 두 회분을 한꺼번에 먹지 마세요. 약 봉투 안내나 약사에게 확인하세요.')
 
 
 def followup_history():
@@ -653,7 +667,7 @@ def dashboard(person_id, elder):
         return
     # 한 회차씩 선택하므로 약이 많아져도 본문 길이가 늘어나지 않습니다.
     ordered = pending + [s for s in slots if s['done']]
-    selected = st.selectbox('드실 약과 시간을 고르세요' if elder else '복용 회차', ordered,
+    selected = ordered[0] if len(ordered)==1 else st.selectbox('드실 약과 시간을 고르세요' if elder else '복용 회차', ordered,
         format_func=lambda s: f"{'✅' if s['done'] else '🕒'} {s['time']} · {s['m']['name']}", key=f'slot_{person_id}_{today}')
     m, slot = selected['m'], selected['time']
     expired_selected = m['expiry'] < today
