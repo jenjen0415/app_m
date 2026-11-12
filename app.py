@@ -673,7 +673,55 @@ def missed_flow(elder):
         item=st.selectbox('어떤 약인가요?',options,format_func=lambda x:f"{x['day']} {x['slot']} · {x['m']['person']} · {x['m']['name']}")
     m=item['m'];day=item['day'];slot=item['slot'];key=f"{m['id']}_{day}_{slot}"
     st.markdown(f'<div class="hero"><span class="badge">{safe(day)} · {safe(slot)}</span><div class="name">{safe(m["name"])}</div><div class="small">{safe(m["person"])} · {safe(m["dose"])}</div></div>',unsafe_allow_html=True)
-    st.markdown('<div class="safety-note" role="note">두 회분을 한꺼번에 먹지 마세요. 지금 먹어도 되는지는 약 봉투의 안내나 약사에게 확인하세요.</div>',unsafe_allow_html=True)
+    # Per-medicine verified instructions and contact persist in the same app database.
+    with database(True) as conn:
+        execute(conn, """CREATE TABLE IF NOT EXISTS fm_help (
+            med_id TEXT PRIMARY KEY REFERENCES fm_meds(id), guidance TEXT NOT NULL,
+            source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)""")
+    saved=rows('SELECT * FROM fm_help WHERE med_id=?',(m['id'],))
+    helpinfo=saved[0] if saved else {'guidance':'','source':'','phone':'','updated':''}
+    st.subheader('지금 할 일')
+    if helpinfo['guidance']:
+        st.info('등록된 약별 안내 · '+helpinfo['guidance'])
+        st.caption('출처: '+helpinfo['source']+' · 등록: '+helpinfo['updated'][:10]+' · 현재 처방과 같은지 확인하세요.')
+    else:
+        st.warning('등록된 복용 지침이 없습니다. 추가 복용 전에 약국에 문의하세요.')
+    phone=helpinfo['phone']
+    if phone:
+        st.link_button('📞 등록한 약국에 전화', 'tel:'+phone,use_container_width=True)
+    else:
+        st.caption('아래 ‘약별 안내 · 연락처 설정’에서 약국 전화번호를 등록할 수 있어요.')
+    last=rows('SELECT recorded_at FROM fm_logs WHERE med_id=? ORDER BY recorded_at DESC LIMIT 1',(m['id'],))
+    recent=last[0]['recorded_at'] if last else '기록 없음 (실제 미복용을 의미하지 않음)'
+    message=(f"복용 확인을 도와주세요.\n가족: {m['person']}\n약: {m['name']} / {m['dose']}"
+             f"\n놓친 일정: {day} {slot}\n마지막 복용 기록: {recent}"
+             "\n놓친 회차를 어떻게 처리할지 약사 또는 처방 의료진에게 확인이 필요합니다.")
+    with st.expander('👪 가족에게 도움 요청'):
+        st.caption('아래 내용을 복사해 가족에게 보내세요. 자동 전송되지 않습니다.')
+        st.text_area('전달할 내용',value=message,height=180,key='help_message_'+key)
+        st.download_button('요청 내용 내려받기',message,file_name='복용확인요청.txt',mime='text/plain',key='help_download_'+key)
+    with st.expander('⚙ 약별 안내 · 연락처 설정'):
+        st.caption('약 봉투·설명서 또는 약사·의료진에게 확인한 지침만 입력하세요. 앱이 검증한 처방은 아닙니다.')
+        with st.form('help_settings_'+key):
+            guide=st.text_area('이 약을 놓쳤을 때의 안내',value=helpinfo['guidance'],max_chars=1600)
+            source=st.text_input('안내 출처 (약 봉투 / 약국 등)',value=helpinfo['source'],max_chars=200)
+            number=st.text_input('약국 전화번호',value=phone,max_chars=30)
+            submit=st.form_submit_button('안내 · 연락처 저장',use_container_width=True)
+        if submit:
+            cleaned=re.sub(r'[\s()-]','',number)
+            if guide.strip() and not source.strip():
+                st.warning('복용 지침의 출처를 입력하세요.')
+            elif cleaned and not re.fullmatch(r'\+?[0-9]{7,15}',cleaned):
+                st.warning('전화번호를 확인하세요.')
+            else:
+                with database(True) as conn:
+                    execute(conn,"""INSERT INTO fm_help (med_id,guidance,source,phone,updated)
+                        VALUES (?,?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET
+                        guidance=excluded.guidance,source=excluded.source,phone=excluded.phone,updated=excluded.updated""",
+                        (m['id'],guide.strip(),source.strip(),cleaned,now().isoformat()))
+                st.rerun()
+    st.markdown('<div class="safety-note">두 회분을 한꺼번에 먹거나 임의로 용량을 늘리지 마세요. 먹었는지 불확실하면 먼저 가족·약사에게 확인하세요. 몸 상태가 나쁘거나 과량 복용이 의심되면 즉시 의료진에게 상담하세요.</div>',unsafe_allow_html=True)
+
     recorded=bool(item['follow'])
     if st.button('못 먹었어요 · 기록하기' if not recorded else '확인 대기로 기록됨',type='primary',use_container_width=True,disabled=recorded):
         if day==now().date().isoformat():
