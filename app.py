@@ -319,8 +319,7 @@ def main():
     </style>''', unsafe_allow_html=True)
     if not st.session_state.get('launch_seen', False):
         st.session_state.launch_seen = True
-        st.markdown('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 2.2s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} </style><div class="launch-screen" aria-label="앱 시작"><svg width="68" height="68" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">  <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/> <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/> <rect x="29" y="30" width="10" height="20" rx="5" transform="rotate(35 34 40)" fill="#fff"/> <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/> </svg></div>',unsafe_allow_html=True)
-    elder = st.toggle('👵 큰 글씨 · 음성 안내', key='elder_mode')
+        st.markdown('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 2.6s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} .launch-content{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}.launch-progress{width:44px;height:44px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;animation:launch-spin .85s linear infinite;box-sizing:border-box}.launch-status{color:#fff!important;-webkit-text-fill-color:#fff!important;font:500 15px sans-serif;letter-spacing:.2px;text-align:center}@keyframes launch-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.launch-progress{animation:none;border-color:#fff}}</style><div class="launch-screen" aria-label="앱 시작"><div class="launch-content"><svg width="68" height="68" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">  <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/> <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/> <rect x="29" y="30" width="10" height="20" rx="5" transform="rotate(35 34 40)" fill="#fff"/> <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/> </svg><div class="launch-progress" role="status" aria-label="시작 화면 표시 중"></div><div class="launch-status">앱을 시작하고 있어요</div></div></div>',unsafe_allow_html=True)('👵 큰 글씨 · 음성 안내', key='elder_mode')
     if elder:
         st.markdown('''<style>
         /* Accessible large-print layout. Do not force a fixed viewport height:
@@ -400,7 +399,7 @@ def missed_history():
         JOIN fm_meds m ON m.id=x.med_id JOIN fm_people p ON p.id=m.person_id
         ORDER BY x.day DESC,x.slot DESC LIMIT 100''')
     if not records:
-        st.info('아직 기록이 없습니다. 오늘 복용 메뉴에서 사유를 남길 수 있어요.')
+        st.info('저장된 사유가 없습니다.')
     for r in records:
         taken = rows('SELECT id FROM fm_logs WHERE med_id=? AND day=? AND slot=?', (r['med_id'],r['day'],r['slot']))
         st.write(f"{r['day']} {r['slot']} · {r['person']} · {r['medicine']}")
@@ -609,6 +608,8 @@ def home_screen(elder):
     elif page=='기록':
         st.subheader('기록')
         if st.button('✅ 먹은 기록',use_container_width=True):history_dialog()
+        if st.button('✏️ 못 먹은 사유 적기',key='reason_from_history',use_container_width=True):
+            st.session_state.page='놓친 약 확인';st.rerun()
         with st.expander('🕒 못 먹은 기록'):followup_history()
     else:
         st.subheader('가족')
@@ -721,17 +722,27 @@ def missed_flow(elder):
                 st.rerun()
     st.markdown('<div class="safety-note">두 회분을 한꺼번에 먹거나 임의로 용량을 늘리지 마세요. 먹었는지 불확실하면 먼저 가족·약사에게 확인하세요. 몸 상태가 나쁘거나 과량 복용이 의심되면 즉시 의료진에게 상담하세요.</div>',unsafe_allow_html=True)
 
-    recorded=bool(item['follow'])
-    if st.button('못 먹었어요 · 기록하기' if not recorded else '확인 대기로 기록됨',type='primary',use_container_width=True,disabled=recorded):
-        if day==now().date().isoformat():
-            ok,msg=save_missed(m['id'],day,slot,'사정상 못 먹었어요','간편 기록')
-            if not ok:
-                st.warning(msg);return
-        ok,msg=save_followup(m['id'],day,slot,'확인 대기','','')
-        if ok:
-            st.rerun()
-        else:st.warning(msg)
-    st.caption('복용 완료가 아니라 확인 대기로 남습니다. 먹었는지 불확실하면 추가 복용 전에 가족·약사에게 확인하세요.')
+    existing_reason=rows('SELECT reason,note FROM fm_missed WHERE med_id=? AND day=? AND slot=?',(m['id'],day,slot))
+    st.subheader('못 먹은 사유')
+    with st.form('missed_reason_'+key):
+        reason=st.radio('사유 선택',['깜빡했어요','사정상 못 먹었어요'],index=0 if not existing_reason or existing_reason[0]['reason']=='깜빡했어요' else 1,horizontal=True)
+        note=st.text_input('자세한 사유 (선택)',value=existing_reason[0]['note'] if existing_reason else '',placeholder='예: 외출하면서 약을 두고 왔어요',max_chars=300)
+        save_reason=st.form_submit_button('사유 저장' if not existing_reason else '사유 수정',use_container_width=True)
+    if save_reason:
+        with database(True) as conn:
+            taken=execute(conn,'SELECT id FROM fm_logs WHERE med_id=? AND day=? AND slot=?',(m['id'],day,slot)).fetchone()
+            if not taken:
+                execute(conn,"""INSERT INTO fm_missed (id,med_id,day,slot,reason,note,recorded_at)
+                    VALUES (?,?,?,?,?,?,?) ON CONFLICT(med_id,day,slot) DO UPDATE SET
+                    reason=excluded.reason,note=excluded.note,recorded_at=excluded.recorded_at""",
+                    (str(uuid.uuid4()),m['id'],day,slot,reason,note.strip(),now().isoformat()))
+        if taken:
+            st.warning('이미 복용 기록이 있습니다. 기록을 먼저 확인하세요.')
+        else:
+            if not item['follow']:
+                save_followup(m['id'],day,slot,'확인 대기','','')
+            st.success('사유를 저장했습니다. 복용 완료가 아니라 확인 대기 기록입니다.')
+    st.caption('사유는 기록 → 못 먹은 기록에서 확인할 수 있어요.')
     times=sorted(json.loads(m['times']))
     current=now()
     future=[datetime.combine(current.date()+timedelta(days=d),datetime.strptime(t,'%H:%M').time(),TZ) for d in (0,1) for t in times]
