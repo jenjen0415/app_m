@@ -522,24 +522,59 @@ def home_screen(elder):
     .st-key-bottom_nav button{min-height:58px!important;padding:6px 2px!important;}
     .st-key-bottom_nav button p{font-size:16px!important;line-height:1.4!important;}
     </style>""",unsafe_allow_html=True)
+    # Unified mobile visual system. Keep explicit foreground/surface pairs.
+    st.markdown("""<style>
+    [data-testid="stAppViewContainer"]{background:#F4F7F6!important;color:#173B38!important;}
+    .block-container{max-width:540px!important;padding-left:20px!important;padding-right:20px!important;}
+    h2,h3{letter-spacing:-0.7px;line-height:1.35!important;}
+    [data-testid="stVerticalBlock"]{gap:14px;}
+    .hero{background:#FFFFFF!important;border:1px solid #DAE5E1!important;
+      border-radius:24px!important;padding:24px!important;
+      box-shadow:0 5px 18px rgba(24,65,55,.045)!important;margin:8px 0 14px;}
+    .hero .name{font-weight:750;letter-spacing:-.6px;line-height:1.4;}
+    .hero .small{line-height:1.65!important;margin-top:10px;}
+    .badge{display:inline-block;padding:5px 11px;border-radius:100px;background:#E2F1EA!important;color:#174E40!important;font-weight:650;}
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button,
+    [data-testid="stAppViewContainer"] [data-testid="stFormSubmitButton"] button{
+      background:#FFFFFF!important;border:1px solid #D2E0DA!important;
+      border-radius:17px!important;color:#173B38!important;min-height:54px;
+      box-shadow:none!important;transition:background .15s,border-color .15s;}
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button p,
+    [data-testid="stAppViewContainer"] [data-testid="stFormSubmitButton"] button p{
+      background:transparent!important;color:#173B38!important;-webkit-text-fill-color:#173B38!important;font-weight:650;}
+    [data-testid="stAppViewContainer"] button[kind="primary"]{
+      background:#DCEFE5!important;border:2px solid #528F76!important;}
+    [data-testid="stAppViewContainer"] button:hover{border-color:#528F76!important;}
+    [data-testid="stAppViewContainer"] button:focus-visible{outline:3px solid #528F76!important;outline-offset:3px;}
+    [data-baseweb="select"]>div{border-radius:14px!important;min-height:50px;border-color:#D2E0DA!important;}
+    [data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea{border-radius:12px!important;}
+    [data-testid="stExpander"]{border-radius:16px!important;border:1px solid #DAE5E1!important;}
+    .st-key-bottom_nav{border-radius:24px 24px 0 0!important;border-top:1px solid #DAE5E1!important;
+      box-shadow:0 -5px 24px rgba(24,65,55,.07)!important;padding-top:12px!important;}
+    .st-key-bottom_nav [data-testid="stButton"] button{border:none!important;background:#FFFFFF!important;min-height:56px!important;}
+    .st-key-bottom_nav [data-testid="stButton"] button[kind="primary"]{background:#DCEFE5!important;border:1px solid #BAD8C9!important;}
+    .st-key-bottom_nav .bottom-brand{padding-bottom:10px!important;}
+    [data-testid="stToggle"]{border:1px solid #DAE5E1!important;background:#FFFFFF!important;}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important;}.launch-screen{animation-duration:.05s!important;}}
+    </style>""",unsafe_allow_html=True)
     page=st.session_state.get('page','오늘 약 먹기')
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
     with st.container(key='bottom_nav'):
         st.markdown('''<div class="bottom-brand" style="display:flex;align-items:center;justify-content:center;width:100%;padding:0 0 6px;line-height:0;"><svg width="42" height="42" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">
-    <rect width="42" height="42" rx="20" fill="#176f70"/>
+    <rect width="68" height="68" rx="20" fill="#176f70"/>
     <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
     <rect x="29" y="30" width="10" height="20" rx="5" transform="rotate(35 34 40)" fill="#fff"/>
     <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/>
     </svg></div>''',unsafe_allow_html=True)
         cols=st.columns(4)
-        for col,icon,label,target in zip(cols,['💊','🧰','📋','👪'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
+        for col,icon,label,target in zip(cols,['💊','▦','☑','♧'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
             if col.button(icon+' '+label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
                 st.session_state.page=target;st.rerun()
     if page=='오늘 약 먹기':
         title,add=st.columns([3,1])
-        title.subheader('오늘')
+        title.subheader('오늘의 복용')
         if add.button('＋ 등록',key='quick_add',use_container_width=True):registration()
         people=rows('SELECT * FROM fm_people ORDER BY name')
         if not people:
