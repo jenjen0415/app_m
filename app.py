@@ -319,20 +319,7 @@ def main():
     </style>''', unsafe_allow_html=True)
     if not st.session_state.get('launch_seen', False):
         st.session_state.launch_seen = True
-        st.markdown('''<style>
-        .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990;
-          display:flex;align-items:center;justify-content:center;
-          animation:launch-out 2.2s ease-out forwards;pointer-events:none;}
-        .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;}
-        @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}}
-        @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}}
-        </style><div class="launch-screen" aria-label="앱 시작"><svg width="68" height="68" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">
-    
-    <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
-    <rect x="29" y="30" width="10" height="20" rx="5" transform="rotate(35 34 40)" fill="#fff"/>
-    <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/>
-    </svg></div>''',unsafe_allow_html=True)
+        st.markdown('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 2.2s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} </style><div class="launch-screen" aria-label="앱 시작"><svg width="68" height="68" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">  <path d="M18 32L34 18L50 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/> <path d="M23 31V48C23 50 25 52 27 52H41C43 52 45 50 45 48V31" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/> <rect x="29" y="30" width="10" height="20" rx="5" transform="rotate(35 34 40)" fill="#fff"/> <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/> </svg></div>',unsafe_allow_html=True)
     elder = st.toggle('👵 큰 글씨 · 음성 안내', key='elder_mode')
     if elder:
         st.markdown('''<style>
@@ -575,6 +562,10 @@ def home_screen(elder):
     [role="option"][aria-selected="true"]{background:#D5EBDD!important;font-weight:750!important;}
     .st-key-bottom_nav [data-testid="stButton"] button p{font-size:18px!important;font-weight:750!important;}
     </style>""",unsafe_allow_html=True)
+    st.markdown("""<style>
+    .st-key-bottom_nav button [data-testid="stIconMaterial"]{font-size:30px!important;width:32px!important;height:32px!important;color:#17483e!important;}
+    .st-key-bottom_nav button{min-height:60px!important;}
+    </style>""",unsafe_allow_html=True)
     page=st.session_state.get('page','오늘 약 먹기')
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
@@ -587,8 +578,8 @@ def home_screen(elder):
     <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/>
     </svg></div>''',unsafe_allow_html=True)
         cols=st.columns(4)
-        for col,icon,label,target in zip(cols,['💊','🧰','📋','👪'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
-            if col.button(icon+' '+label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
+        for col,icon,label,target in zip(cols,[':material/medication:',':material/medical_services:',':material/history:',':material/group:'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
+            if col.button(label if elder else '',icon=icon,help=label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
                 st.session_state.page=target;st.rerun()
     if page=='오늘 약 먹기':
         title,add=st.columns([3,1])
