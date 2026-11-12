@@ -318,8 +318,8 @@ def main():
         st.markdown('''<style>
         .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990;
           display:flex;align-items:center;justify-content:center;
-          animation:launch-out 1.8s forwards;pointer-events:none;}
-        .launch-screen svg{width:64px;height:64px;display:block;flex:none;overflow:visible;}
+          animation:launch-out 2.2s ease-out forwards;pointer-events:none;}
+        .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;}
         @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}}
         @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}}
         </style><div class="launch-screen" aria-label="앱 시작"><svg width="68" height="68" viewBox="0 0 68 68" role="img" aria-label="가족 약 지킴이 로고" xmlns="http://www.w3.org/2000/svg">
@@ -557,6 +557,20 @@ def home_screen(elder):
     [data-testid="stToggle"]{border:1px solid #DAE5E1!important;background:#FFFFFF!important;}
     @media(prefers-reduced-motion:reduce){*{transition:none!important;}.launch-screen{animation-duration:.05s!important;}}
     </style>""",unsafe_allow_html=True)
+    st.markdown("""<style>
+    .hero .name{font-size:30px;font-weight:800!important;color:#163047!important;}
+    .hero .small{font-size:19px;color:#29483F!important;}
+    .badge{font-size:18px;font-weight:750!important;}
+    [data-testid="stWidgetLabel"] p{font-size:18px;font-weight:700!important;}
+    [data-testid="stCaptionContainer"] p{font-size:16px;color:#344F48!important;opacity:1!important;}
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button p{font-size:19px;}
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button[kind="primary"]{
+      background:#CBE8D8!important;border:2px solid #316D52!important;}
+    [data-testid="stAppViewContainer"] [data-testid="stButton"] button:disabled{opacity:.75!important;}
+    [role="option"]{border-bottom:1px solid #DCE6E1!important;padding:16px!important;font-size:19px!important;}
+    [role="option"][aria-selected="true"]{background:#D5EBDD!important;font-weight:750!important;}
+    .st-key-bottom_nav [data-testid="stButton"] button p{font-size:18px!important;font-weight:750!important;}
+    </style>""",unsafe_allow_html=True)
     page=st.session_state.get('page','오늘 약 먹기')
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
@@ -569,7 +583,7 @@ def home_screen(elder):
     <path d="M30 37L38 43" stroke="#176f70" stroke-width="2"/>
     </svg></div>''',unsafe_allow_html=True)
         cols=st.columns(4)
-        for col,icon,label,target in zip(cols,['💊','▦','☑','♧'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
+        for col,icon,label,target in zip(cols,['💊','🧰','📋','👪'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
             if col.button(icon+' '+label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
                 st.session_state.page=target;st.rerun()
     if page=='오늘 약 먹기':
@@ -752,9 +766,9 @@ def dashboard(person_id, elder):
             speech('오늘 등록된 복용 일정이 없습니다.')
         return
     # 한 회차씩 선택하므로 약이 많아져도 본문 길이가 늘어나지 않습니다.
-    ordered = pending + [s for s in slots if s['done']]
-    selected = ordered[0] if len(ordered)==1 else st.selectbox('드실 약과 시간을 고르세요' if elder else '복용 회차', ordered,
-        format_func=lambda s: f"{'✅' if s['done'] else '🕒'} {s['time']} · {s['m']['name']}", key=f'slot_{person_id}_{today}')
+    ordered = slots  # chronological regardless of completion
+    selected = ordered[0] if len(ordered)==1 else st.selectbox('드실 약과 시간을 고르세요' if elder else '🕒 오늘의 시간표', ordered,
+        format_func=lambda s: f"{'✅' if s['done'] else '🕒'} {s['time']} · {s['m']['name']}", index=next((i for i,x in enumerate(ordered) if not x['done']),0), key=f'slot_v2_{person_id}_{today}')
     m, slot = selected['m'], selected['time']
     expired_selected = m['expiry'] < today
     early = selected['scheduled'] > current
