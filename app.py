@@ -198,7 +198,8 @@ def registration():
             st.info('먼저 가족을 등록하세요.')
             return
         with st.form('med_form'):
-            owner = st.selectbox('복용할 가족', people, format_func=lambda p: p['name'])
+            owners = st.multiselect('복용할 가족 (여러 명 선택 가능)', people, default=[people[0]], format_func=lambda p: p['name'])
+            st.caption('각자 처방받았거나 복용이 적합하다고 확인된 가족만 선택하세요. 용량·시각이 다르면 따로 등록하세요. 처방약을 가족끼리 나눠 먹지 마세요.')
             name = st.text_input('약 이름', max_chars=70)
             ingredient = st.text_input('주성분 (모르면 비워두세요)', max_chars=120, help='동일 성분 비교는 입력한 문자열이 같은 경우만 가능합니다. 복합제·다른 표기는 자동 판별하지 않습니다.')
             dose = st.text_input('1회 복용량 / 주의사항', placeholder='처방대로 입력: 예) 1정, 식후', max_chars=160)
@@ -209,7 +210,9 @@ def registration():
             submit = st.form_submit_button('약 등록', use_container_width=True)
         if submit:
             parts = [v.strip() for v in times.split(',') if v.strip()]
-            if not name.strip() or not dose.strip():
+            if not owners:
+                st.warning('복용할 가족을 한 명 이상 선택하세요.')
+            elif not name.strip() or not dose.strip():
                 st.warning('약 이름과 복용량/주의사항을 입력하세요.')
             elif any(not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', x) for x in parts):
                 st.warning('시각은 08:00처럼 입력하세요.')
@@ -219,9 +222,10 @@ def registration():
                 st.warning('복용 시각을 넣거나 상비약으로 표시하세요.')
             else:
                 with database(True) as conn:
-                    execute(conn, '''INSERT INTO fm_meds
-                    (id,person_id,name,ingredient,dose,expiry,times,gap,stock,active)
-                    VALUES (?,?,?,?,?,?,?,?,?,1)''', (str(uuid.uuid4()), owner['id'], name.strip(), ingredient.strip(), dose.strip(), expiry.isoformat(), json.dumps(sorted(set(parts))), gap, int(stock)))
+                    for owner in owners:
+                        execute(conn, '''INSERT INTO fm_meds
+                        (id,person_id,name,ingredient,dose,expiry,times,gap,stock,active)
+                        VALUES (?,?,?,?,?,?,?,?,?,1)''', (str(uuid.uuid4()), owner['id'], name.strip(), ingredient.strip(), dose.strip(), expiry.isoformat(), json.dumps(sorted(set(parts))), gap, int(stock)))
                 st.rerun()
 
 
@@ -680,7 +684,11 @@ def missed_flow(elder):
             source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)""")
     saved=rows('SELECT * FROM fm_help WHERE med_id=?',(m['id'],))
     helpinfo=saved[0] if saved else {'guidance':'','source':'','phone':'','updated':''}
+    elapsed=max(0,int((now()-datetime.combine(date.fromisoformat(day),datetime.strptime(slot,'%H:%M').time(),TZ)).total_seconds()/60))
+    st.caption(f'예정 시각에서 {elapsed//60}시간 {elapsed%60}분 지났습니다. 시간 경과만으로 복용 여부를 결정할 수 없습니다.')
     st.subheader('지금 할 일')
+    st.caption('① 약 봉투의 누락 시 지침 확인 → ② 없으면 약국 문의 → ③ 확인한 결과를 아래에 기록')
+
     if helpinfo['guidance']:
         st.info('등록된 약별 안내 · '+helpinfo['guidance'])
         st.caption('출처: '+helpinfo['source']+' · 등록: '+helpinfo['updated'][:10]+' · 현재 처방과 같은지 확인하세요.')
@@ -738,9 +746,13 @@ def missed_flow(elder):
     future=[datetime.combine(current.date()+timedelta(days=d),datetime.strptime(t,'%H:%M').time(),TZ) for d in (0,1) for t in times]
     nxt=min((t for t in future if t>current),default=None)
     if nxt:st.caption('다음 등록 시각: '+nxt.strftime('%m월 %d일 %H:%M')+' (복용 지시가 아닙니다)')
-    with st.expander('약사에게 확인했거나, 이미 먹었다면'):
+    st.subheader('확인한 뒤 처리하기')
+    st.caption('복용 지침을 아직 확인하지 못했다면 위의 확인 대기 기록만 남기세요. 다음 등록 일정은 그대로 유지되며, 놓친 용량을 합산하지 않습니다.')
+    with st.expander('건너뛰기 · 복용 기록으로 이동', expanded=True):
         st.caption('이미 먹었다면 추가로 먹지 마세요. 오늘 복용 화면에서 기록을 확인할 수 있습니다.')
-        if st.button('오늘 복용으로 이동',key='to_today_'+key,use_container_width=True):
+        if day != now().date().isoformat():
+            st.caption('이전 날짜 회차는 오늘 복용으로 옮겨 기록하지 마세요. 아래 확인 결과에 실제 복용 날짜·시각을 남기세요.')
+        if st.button('💊 지침 확인 후 오늘 복용 기록으로 이동',key='to_today_'+key,use_container_width=True,disabled=day != now().date().isoformat()):
             st.session_state.page='오늘 약 먹기';st.rerun()
         with st.form('follow_form_'+key):
             result=st.selectbox('확인한 결과',['안내에 따라 건너뜀','안내에 따라 복용함','가족·기록으로 확인 완료'])
@@ -818,6 +830,8 @@ def dashboard(person_id, elder):
     selected = ordered[0] if len(ordered)==1 else st.selectbox('드실 약과 시간을 고르세요' if elder else '🕒 오늘의 시간표', ordered,
         format_func=lambda s: f"{'✅' if s['done'] else '🕒'} {s['time']} · {s['m']['name']}", index=next((i for i,x in enumerate(ordered) if not x['done']),0), key=f'slot_v2_{person_id}_{today}')
     m, slot = selected['m'], selected['time']
+    person_name=rows('SELECT name FROM fm_people WHERE id=?',(person_id,))
+    st.info('👤 '+(person_name[0]['name'] if person_name else '선택 가족')+'의 복용 기록입니다. 다른 가족의 복용 여부와 별도로 저장됩니다.')
     expired_selected = m['expiry'] < today
     early = selected['scheduled'] > current
     state = '복용 완료' if selected['done'] else '기한 경과 · 복용 금지' if expired_selected else '예정 시각 전' if early else '복용 확인이 필요해요'
