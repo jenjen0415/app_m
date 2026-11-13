@@ -269,37 +269,6 @@ def history_dialog():
     person_filter = st.selectbox('가족', ['전체'] + people_names, key='history_person') if len(people_names)>1 else people_names[0]
     shown = [r for r in logs if person_filter=='전체' or r['person']==person_filter]
     shown = sorted(shown, key=lambda r:r['taken_at'])
-    st.caption('24시간 시계 · 점은 실제 복용 시각입니다. 예정 시각이나 미복용 여부를 뜻하지 않습니다.')
-    # Raster clock: independent of global CSS, no additional dependency.
-    from PIL import Image, ImageDraw
-    import math
-    image=Image.new('RGB',(640,640),'white')
-    draw=ImageDraw.Draw(image)
-    cx=cy=320; radius=240
-    draw.ellipse((80,80,560,560),outline='#687787',width=3)
-    for hour in range(24):
-        angle=hour*math.tau/24-math.pi/2
-        x=cx+radius*math.cos(angle); y=cy+radius*math.sin(angle)
-        inner=radius-(15 if hour%6==0 else 8)
-        draw.line((cx+inner*math.cos(angle),cy+inner*math.sin(angle),x,y),fill='#687787',width=3)
-        if hour%3==0:
-            tx=cx+275*math.cos(angle);ty=cy+275*math.sin(angle)
-            draw.text((tx,ty),f'{hour:02d}',fill='#163047',anchor='mm',font_size=25)
-    # Concentric tracks preserve multiple events at the same minute.
-    collisions={}
-    for r in shown:
-        taken=datetime.fromisoformat(r['taken_at']).astimezone(TZ)
-        minute=taken.hour*60+taken.minute
-        layer=collisions.get(minute,0);collisions[minute]=layer+1
-        distance=max(90,radius-28-18*layer)
-        angle=minute*math.tau/1440-math.pi/2
-        x=cx+distance*math.cos(angle);y=cy+distance*math.sin(angle)
-        draw.ellipse((x-9,y-9,x+9,y+9),fill='#176f70',outline='white',width=2)
-    draw.text((320,292),chosen.strftime('%m / %d'),fill='#163047',anchor='mm',font_size=34)
-    draw.text((320,340),str(len(shown)),fill='#163047',anchor='mm',font_size=48)
-    buffer=io.BytesIO();image.save(buffer,format='PNG')
-    st.image(buffer.getvalue(),use_container_width=True)
-    st.caption(f'가운데 숫자: 표시 중인 복용 기록 {len(shown)}건 · 위 00시 / 오른쪽 06시 / 아래 12시 / 왼쪽 18시')
     st.subheader('시간순 복용 기록')
     for r in shown:
         actual=datetime.fromisoformat(r['taken_at']).astimezone(TZ).strftime('%H:%M')
@@ -454,6 +423,13 @@ def missed_history():
 
 
 def home_screen(elder):
+    st.markdown("""<style>
+    .st-key-family_schedule_row [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:10px!important;align-items:stretch;}
+    .st-key-family_schedule_row [data-testid="stColumn"]:first-child{flex:1 1 0!important;min-width:76px!important;}
+    .st-key-family_schedule_row [data-testid="stColumn"]:last-child{flex:3 1 0!important;min-width:0!important;}
+    .st-key-family_schedule_row [data-baseweb="select"]>div{min-height:70px!important;border:2px solid #b3ccc6!important;border-radius:14px!important;background:#fff!important;}
+    </style>""",unsafe_allow_html=True)
+
     st.markdown("""<style>
     input::placeholder,textarea::placeholder{color:#737d89!important;-webkit-text-fill-color:#737d89!important;opacity:1!important;}
     .dose-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;}
@@ -635,8 +611,7 @@ def home_screen(elder):
             st.info('먼저 가족과 약을 등록하세요.')
             if st.button('＋ 가족 · 약 등록',type='primary',use_container_width=True):registration()
         else:
-            person=people[0] if len(people)==1 else st.selectbox('가족',people,format_func=lambda p:p['name'])
-            dashboard(person['id'],elder)
+            dashboard(people[0]['id'],elder)
     elif page=='놓친 약 확인':
         if st.button('← 오늘',key='back_today'):
             st.session_state.page='오늘 약 먹기';st.rerun()
@@ -785,7 +760,26 @@ def family_list():
 
 
 @st.fragment(run_every='20s')
+@st.dialog('🔔 복용 알림', width='small')
+def dose_notifications(person_name, due_items, completed, total):
+    st.markdown(f'**👤 {safe(person_name)}**')
+    st.metric('복용 확인 필요', f'{len(due_items)}건')
+    st.metric('오늘 기록', f'{completed}/{total}회')
+    for entry in due_items:
+        st.write(f"🕒 {entry['time']} · {entry['m']['name']}")
+    if not due_items:st.success('현재 확인할 일정이 없습니다.')
+    st.caption('기록이 없는 일정입니다. 실제 미복용을 뜻하지 않습니다.')
+
+
 def dashboard(person_id, elder):
+    st.markdown('<style>\n.st-key-family_schedule_row [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:8px!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:first-child{width:25%!important;flex:0 0 25%!important;min-width:0!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:last-child{width:calc(75% - 8px)!important;flex:1 1 0!important;min-width:0!important;}\n</style>',unsafe_allow_html=True)
+    # Select family before querying schedules; scalar ids keep selection stable.
+    people=rows('SELECT * FROM fm_people ORDER BY name')
+    names={p['id']:p['name'] for p in people}
+    with st.container(key='family_schedule_row'):
+        family_col,schedule_col=st.columns([1,3],gap='small')
+    with family_col:
+        person_id=st.selectbox('가족',list(names),format_func=lambda k:'👤 '+names[k],key='today_family_compact',label_visibility='collapsed')
     current = now()
     today = current.date().isoformat()
     meds = rows('SELECT * FROM fm_meds WHERE person_id=? AND active=1 ORDER BY name', (person_id,))
@@ -802,13 +796,13 @@ def dashboard(person_id, elder):
     due = [s for s in pending if s['scheduled'] <= current and s['m']['expiry'] >= today]
     expired = sum(m['expiry'] < today for m in meds)
     soon = sum(0 <= (date.fromisoformat(m['expiry']) - current.date()).days <= 30 for m in meds)
-    st.markdown(f'<div class="top-notice" role="status">🔔 복용 확인 {len(due)}건　·　오늘 기록 {len(done)}/{len(slots)}회</div>',unsafe_allow_html=True)
+
     if expired:st.warning(f'유효기간 지난 약 {expired}개 · 복용 금지')
     flash = st.session_state.pop('flash', None)
     if flash:
         (st.success if flash[0] else st.warning)(flash[1])
     if not slots:
-        st.info('오늘의 일정이 없습니다. ＋등록에서 복용 시각을 입력하세요.')
+        schedule_col.info('등록된 복용 일정이 없습니다.')
         if elder:
             speech('오늘 등록된 복용 일정이 없습니다.')
         return
@@ -819,9 +813,10 @@ def dashboard(person_id, elder):
     choice_key=f'slot_v3_{person_id}_{today}'
     if st.session_state.get(choice_key) not in choice_map:
         st.session_state[choice_key]=next((k for k,x in choice_map.items() if not x['done']),choice_keys[0])
-    selected_key=choice_keys[0] if len(ordered)==1 else st.selectbox(
-        '드실 약과 시간을 고르세요' if elder else '🕒 오늘의 시간표',choice_keys,
-        format_func=lambda k: f"{'✅' if choice_map[k]['done'] else '🕒'} {choice_map[k]['time']} · {choice_map[k]['m']['name']}",key=choice_key)
+    with schedule_col:
+        selected_key=st.selectbox('복용할 약 · 기록',choice_keys,
+            format_func=lambda k:f"{'✅ 먹음' if choice_map[k]['done'] else '🕒 예정'} · {choice_map[k]['time']} · {choice_map[k]['m']['name']}",
+            key=choice_key,label_visibility='collapsed')
     selected=choice_map[selected_key]
     m, slot = selected['m'], selected['time']
     person_name=rows('SELECT name FROM fm_people WHERE id=?',(person_id,))
@@ -829,8 +824,10 @@ def dashboard(person_id, elder):
     early=selected['scheduled']>current
     state='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '예정' if early else '확인 필요'
     pname=person_name[0]['name'] if person_name else '가족'
-    st.markdown(f'<div class="hero"><div class="dose-row"><strong>👤 {safe(pname)}</strong><strong>💊 {safe(m["name"])}</strong></div><div class="small">🕒 {safe(slot)} · {safe(m["dose"])} · {state}</div></div>',unsafe_allow_html=True)
+    st.write(f"💊 {m['dose']} · {state}")
     with st.container(key='today_tools'):
+        if st.button(str(len(due)) if due else '',icon=':material/notifications:',help='복용 알림 · 오늘 기록',key='rail_notifications'):
+            dose_notifications(pname,due,len(done),len(slots))
         if st.button('',icon=':material/alarm_off:',help='못 먹은 약',key='rail_missed'):
             st.session_state.page='놓친 약 확인';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
