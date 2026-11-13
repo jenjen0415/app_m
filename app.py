@@ -834,15 +834,7 @@ def dashboard(person_id, elder):
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
     unread_count=len(unread)
     if unread_count:
-        st.markdown('<style>.st-key-today_tools button:has([data-testid="stIconMaterial"]):first-child{border:3px solid #b42318!important;background:#fff0ec!important;} @keyframes bellPulse{50%{box-shadow:0 0 0 6px #b4231820;}} .st-key-today_tools [data-testid="stButton"]:first-child button{animation:bellPulse 1.3s ease-in-out infinite;} @media(prefers-reduced-motion:reduce){.st-key-today_tools button{animation:none!important;}}</style>',unsafe_allow_html=True)
-        # Browser-owned interaction starts audio; repeat only while this unread component exists.
-        components.html('''<button id="sound" style="border:2px solid #b42318;border-radius:12px;background:#fff0ec;color:#7a2118;padding:10px;font-size:16px;font-weight:700">🔔 안 읽은 알림 · 소리 켜기</button>
-        <script>
-        let ctx=null, timer=null;
-        function beep(){if(!ctx)return;const osc=ctx.createOscillator(), gain=ctx.createGain();osc.connect(gain);gain.connect(ctx.destination);osc.frequency.value=880;gain.gain.setValueAtTime(.08,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.35);osc.start();osc.stop(ctx.currentTime+.35);}
-        document.getElementById('sound').onclick=async()=>{if(!ctx){const A=window.AudioContext||window.webkitAudioContext;if(!A)return;ctx=new A();}await ctx.resume();beep();if(!timer)timer=setInterval(beep,15000);document.getElementById('sound').innerText='🔔 알림 소리 켜짐';};
-        window.addEventListener('pagehide',()=>{clearInterval(timer);if(ctx)ctx.close();});
-        </script>''',height=56)
+        st.markdown('<style>.st-key-rail_notifications button{border:3px solid #b42318!important;background:#fff0ec!important;color:#7a2118!important;animation:bellPulse 1.3s ease-in-out infinite;} @keyframes bellPulse{50%{box-shadow:0 0 0 5px #b4231820;}} @media(prefers-reduced-motion:reduce){.st-key-rail_notifications button{animation:none!important;}}</style>',unsafe_allow_html=True)
     if st.session_state.pop('open_notices_'+person_id,False):
         dose_notifications(person_id,pname,len(done),len(slots))
     with st.container(key='today_tools'):
