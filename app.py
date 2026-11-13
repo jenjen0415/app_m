@@ -1051,7 +1051,7 @@ def dashboard(person_id, elder):
         st.session_state[choice_key]=next((k for k,x in choice_map.items() if not x['done']),choice_keys[0])
     with schedule_col:
         selected_key=st.selectbox('복용할 약 · 기록',choice_keys,
-            format_func=lambda k:f"{'완료' if choice_map[k]['done'] else '예정'} · {choice_map[k]['time']} · {choice_map[k]['m']['name']}",
+            format_func=lambda k:f"{'✅ 완료' if choice_map[k]['done'] else '🕒 예정'} · {choice_map[k]['time']} · {choice_map[k]['m']['name']}",
             key=choice_key,label_visibility='collapsed')
     selected=choice_map[selected_key]
     m, slot = selected['m'], selected['time']
@@ -1061,30 +1061,36 @@ def dashboard(person_id, elder):
     state='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '예정' if early else '확인 필요'
     pname=person_name[0]['name'] if person_name else '가족'
     completed_slots=sum(x['done'] for x in slots)
-    progress=round(100*completed_slots/len(slots)) if slots else 0
+    status_icon='✓' if selected['done'] else '!' if expired_selected else '◷'
+    status_label='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '복용 예정' if early else '복용 여부 확인'
+    # Friendly original character, while keeping medicine facts visually dominant.
+    mood='기록했어요!' if selected['done'] else '누구의 약인지 먼저 확인해요'
+    face='◡' if selected['done'] else 'ᴗ'
     st.html(f"""<style>
-    .dose-focus{{background:#fff;border:1px solid #d4e3df;border-radius:24px;
-      padding:22px 24px;margin:12px 0 18px;box-shadow:0 8px 24px #16304708;color:#163047;}}
-    .dose-focus .dose-top{{display:flex;justify-content:space-between;align-items:center;gap:12px;}}
-    .dose-focus .dose-person{{font-size:16px;font-weight:700;color:#47635d;}}
-    .dose-focus .dose-state{{font-size:14px;font-weight:700;background:#eef4f1;color:#315d50;padding:5px 10px;border-radius:99px;}}
-    .dose-focus .dose-time{{font-size:46px;font-weight:800;line-height:1.15;letter-spacing:-2px;margin-top:18px;color:#123e36;}}
-    .dose-focus .dose-name{{font-size:26px;font-weight:800;line-height:1.4;margin-top:8px;overflow-wrap:anywhere;color:#163047;}}
-    .dose-focus .dose-amount{{font-size:18px;margin-top:6px;line-height:1.5;color:#38544e;}}
-    .dose-focus .dose-footer{{border-top:1px solid #e4ece8;margin-top:20px;padding-top:14px;display:flex;justify-content:space-between;font-size:14px;color:#47635d;}}
-    .dose-focus .dose-track{{height:6px;border-radius:6px;background:#e5eeea;margin-top:10px;overflow:hidden;}}
-    .dose-focus .dose-fill{{height:100%;width:{progress}%;background:#21745b;border-radius:6px;}}
-    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:16px!important;min-height:58px!important;}}
-    .st-key-dose_confirm button p,.st-key-dose_confirm button span{{color:#fff!important;-webkit-text-fill-color:#fff!important;}}
-    .st-key-dose_exception button{{border-radius:16px!important;min-height:52px!important;background:#fff!important;}}
-    @media(max-width:480px){{.dose-focus{{padding:18px;}}.dose-focus .dose-time{{font-size:40px;}}}}
-</style><section class="dose-focus" aria-label="선택한 복용 일정">
-    <div class="dose-top"><span class="dose-person">{safe(pname)}의 복용 일정</span><span class="dose-state">{safe(state)}</span></div>
-    <div class="dose-time">{safe(slot)}</div><div class="dose-name">{safe(m['name'])}</div>
-    <div class="dose-amount">{safe(m['dose'])}</div>
-    <div class="dose-footer"><span>오늘 기록한 일정</span><strong>{completed_slots} / {len(slots)}</strong></div>
-    <div class="dose-track" role="progressbar" aria-valuemin="0" aria-valuemax="{len(slots)}" aria-valuenow="{completed_slots}"><div class="dose-fill"></div></div>
-    </section>""")
+    .buddy-card{{margin:14px 0 18px;border:2px solid #bfd6cc;border-radius:28px;overflow:hidden;background:#fffdf7;color:#183f36;}}
+    .buddy-card *{{box-sizing:border-box;}}
+    .buddy-top{{padding:18px;background:#e9f3d9;display:flex;align-items:center;gap:16px;}}
+    .pill-buddy{{position:relative;flex:none;width:64px;height:86px;border:3px solid #244f43;border-radius:32px;background:linear-gradient(#fffdf7 50%,#a8d8c1 50%);transform:rotate(-10deg);}}
+    .pill-buddy .eyes{{position:absolute;top:20px;left:15px;letter-spacing:10px;font-size:18px;color:#244f43;}}
+    .pill-buddy .smile{{position:absolute;top:39px;left:23px;font-size:20px;color:#244f43;}}
+    .buddy-hello{{font-size:14px;color:#405a42;line-height:1.6;}}
+    .buddy-hello strong{{display:block;font-size:23px;color:#193f35;}}
+    .buddy-facts{{padding:22px 18px;display:flex;align-items:center;gap:18px;}}
+    .buddy-time{{flex:none;text-align:center;background:#fff0cf;border:1px solid #ddcda8;border-radius:18px;padding:14px 12px;}}
+    .buddy-time small{{display:block;color:#64532d;font-size:12px;margin-bottom:6px;}}
+    .buddy-time b{{font-size:30px;color:#3c4731;letter-spacing:-1px;}}
+    .buddy-drug{{min-width:0;}}
+    .buddy-drug h2{{font-size:26px;line-height:1.35;margin:0 0 8px;color:#183f36;overflow-wrap:anywhere;}}
+    .buddy-drug p{{font-size:18px;line-height:1.5;margin:0;color:#3e554a;overflow-wrap:anywhere;}}
+    .buddy-footer{{border-top:1px dashed #c6d6c9;padding:13px 18px;display:flex;justify-content:space-between;font-size:14px;color:#3d594d;background:#f3f6eb;gap:8px;}}
+    .buddy-footer strong{{color:#234c3d;}}
+    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:18px!important;min-height:58px!important;}}
+    .st-key-dose_confirm button p,.st-key-dose_confirm button span{{color:white!important;-webkit-text-fill-color:white!important;}}
+    @media(max-width:380px){{.buddy-facts{{gap:12px;padding:18px 12px;}}.buddy-time b{{font-size:26px;}}.buddy-drug h2{{font-size:23px;}}}}
+    </style><section class="buddy-card" aria-label="가족 복용 일정">
+    <div class="buddy-top"><div class="pill-buddy" aria-hidden="true"><span class="eyes">••</span><span class="smile">{face}</span></div><div class="buddy-hello"><strong>{safe(pname)}의 약 챙기기</strong>{safe(mood)}</div></div>
+    <div class="buddy-facts"><div class="buddy-time"><small>예정 시각</small><b>{safe(slot)}</b></div><div class="buddy-drug"><h2>{safe(m['name'])}</h2><p>{safe(m['dose'])}</p></div></div>
+    <div class="buddy-footer"><span>{safe(status_label)}</span><strong>오늘 기록 {completed_slots}/{len(slots)}</strong></div></section>""")
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
