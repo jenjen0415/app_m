@@ -627,7 +627,8 @@ def home_screen(elder):
             expired=m['expiry']<now().date().isoformat()
             st.markdown(f'<div class="hero"><div class="name">{safe(m["name"])}</div><div class="small">{safe(m["person"])} · {safe(m["dose"])}<br>{"⛔ 기한 지남" if expired else "📅 유효기간"} {safe(m["expiry"])}</div></div>',unsafe_allow_html=True)
     elif page=='기록':
-        st.subheader('기록')
+        st.subheader('복용 현황')
+        intake_table()
         if st.button('✅ 먹은 기록',use_container_width=True):history_dialog()
         if st.button('✏️ 못 먹은 사유 적기',key='reason_from_history',use_container_width=True):
             st.session_state.page='놓친 약 확인';st.rerun()
@@ -759,15 +760,53 @@ def family_list():
         st.write('👤 '+p['name'])
 
 
+def intake_table():
+    chosen=st.date_input('날짜',value=now().date(),key='table_day')
+    day=chosen.isoformat()
+    people=rows('SELECT * FROM fm_people ORDER BY name')
+    ids=['all']+[p['id'] for p in people]
+    names={p['id']:p['name'] for p in people};names['all']='가족 전체'
+    who=st.selectbox('가족',ids,format_func=lambda x:names[x],key='table_person')
+    medicines=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id')
+    output=[]
+    for m in medicines:
+        if who!='all' and m['person_id']!=who:continue
+        logs=rows('SELECT * FROM fm_logs WHERE med_id=? AND day=?',(m['id'],day))
+        missed=rows('SELECT * FROM fm_missed WHERE med_id=? AND day=?',(m['id'],day))
+        follow=rows('SELECT * FROM fm_followup WHERE med_id=? AND day=?',(m['id'],day))
+        logmap={r['slot']:r for r in logs};missmap={r['slot']:r for r in missed};fmap={r['slot']:r for r in follow}
+        times=set(logmap)|set(missmap)|set(fmap)
+        # Historical schedules were not snapshotted; do not invent past missed doses.
+        if chosen==now().date() and m['active']:times.update(json.loads(m['times']))
+        for slot in sorted(times):
+            actual='—';reason=''
+            if slot in logmap:
+                status='✅ 복용';actual=datetime.fromisoformat(logmap[slot]['taken_at']).astimezone(TZ).strftime('%H:%M')
+            elif slot in fmap and fmap[slot]['action']=='안내 확인 후 건너뜀':status='⏭ 안내에 따라 건너뜀'
+            elif slot in fmap and fmap[slot]['action']=='안내 확인 후 복용 보고':status='📝 복용 보고 · 시각 확인 필요'
+            elif slot in missmap:
+                reason=missmap[slot]['reason'];status='❔ 복용 여부 불확실' if '모르' in reason else '❌ 못 먹음 기록'
+            else:
+                scheduled=datetime.combine(chosen,datetime.strptime(slot,'%H:%M').time(),TZ)
+                status='🕒 예정' if scheduled>now() else '❔ 확인 필요'
+            if slot in missmap:reason=missmap[slot]['reason']+(' · '+missmap[slot]['note'] if missmap[slot]['note'] else '')
+            output.append({'가족':m['person'],'약':m['name'],'예정':slot,'복용 시각':actual,'상태':status,'사유':reason})
+    if output:
+        output.sort(key=lambda r:(r['예정'],r['가족'],r['약']))
+        st.dataframe(output,hide_index=True,use_container_width=True)
+    else:st.info('이 날짜에 남긴 기록이 없습니다.')
+    st.caption('확인 필요는 미복용 확정이 아닙니다. 지난 날짜는 저장된 기록만 표시합니다. 예정은 현재 등록 일정 기준입니다.')
+
+
 @st.dialog('🔔 복용 알림', width='small')
 def dose_notifications(person_id, person_name, completed, total):
     st.markdown(f'**👤 {safe(person_name)}**')
-    st.write(f'오늘 복용 기록 {completed}/{total}회')
     notices=rows('SELECT * FROM fm_notices WHERE person_id=? ORDER BY day DESC,slot DESC LIMIT 100',(person_id,))
     for n in notices:
         with st.container(border=True):
-            st.write(f"🕒 {n['day']} {n['slot']} · {n['medicine']}")
-            st.caption('읽음 · 복용 여부는 오늘 화면에서 확인하세요.')
+            st.markdown(f"**💊 {safe(n['medicine'])} 복용 시간 안내**")
+            st.write(f"{n['day']} {n['slot']} 예정 · 복용 여부를 확인해 주세요.")
+            st.caption('읽음 · 이전에 생성된 시간 안내입니다. 현재 상태는 기록 메뉴에서 확인하세요.')
     if not notices:st.info('알림이 없습니다.')
 
 
