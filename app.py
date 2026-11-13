@@ -845,9 +845,29 @@ def missed_flow(elder):
                 advance('unwell' if i==2 else 'uncertain' if i==3 else 'know')
         return
     if step=='unwell':
-        st.subheader('몸이 불편한가요?')
-        st.write('심한 호흡곤란·의식 저하는 119, 그 외 증상은 의료진에게 문의하세요.')
-        if st.button('확인했어요',use_container_width=True):advance('know')
+        st.subheader('어떤 불편함이 있나요?')
+        for i,label in enumerate(['메스꺼움 · 속 불편함','어지러움','삼키기 어려움','다른 증상','호흡곤란 · 의식 저하']):
+            if st.button(label,key='mq_symptom_'+str(i),use_container_width=True):
+                st.session_state['mq_symptom']=label;advance('symptom_help')
+        return
+    if step=='symptom_help':
+        symptom=st.session_state.get('mq_symptom','다른 증상')
+        st.subheader('지금 할 수 있는 일')
+        advice={
+            '메스꺼움 · 속 불편함':'편한 자세로 쉬고, 토한 시각과 횟수를 적어두세요. 토했다고 약을 다시 먹거나 식사 조건을 임의로 바꾸지 마세요.',
+            '어지러움':'넘어지지 않게 앉거나 누우세요. 운전·계단 이동은 피하고 가족에게 알려주세요.',
+            '삼키기 어려움':'억지로 삼키거나 약을 임의로 쪼개고 가루내지 마세요. 물도 삼키기 어렵거나 숨이 차면 즉시 도움을 요청하세요.',
+            '다른 증상':'언제부터 어떤 증상인지 적고, 약 포장과 마지막 복용 기록을 준비하세요.',
+            '호흡곤란 · 의식 저하':'즉시 119에 연락하고 곁에 있는 사람에게 도움을 요청하세요. 약·물·음식을 억지로 먹이지 마세요.'}
+        st.write(advice[symptom])
+        if symptom=='호흡곤란 · 의식 저하':
+            st.link_button('119 전화','tel:119',use_container_width=True)
+        notes=st.text_input('증상 메모',placeholder='예시) 오전 9시부터 어지러움',key='mq_symptom_note')
+        if st.button('가족에게 보낼 내용 보기',use_container_width=True):
+            target=st.session_state['mq_target'];m=target['m']
+            st.text_area('복사해서 보내세요',value=f"{m['person']} · {m['name']} / {target['slot']} 일정\n증상: {symptom}\n{notes}\n복용 여부 확인과 도움을 부탁해요.",height=130)
+        st.caption('위 행동은 증상에 대한 일반적인 안전 조치이며, 해당 약의 복용·중단 지시는 아닙니다. 증상이 지속되거나 심해지면 의료진에게 상담하세요.')
+        if st.button('복용법 확인으로',use_container_width=True):advance('know')
         return
     if step=='uncertain':
         st.subheader('먹었는지 먼저 확인하세요')
@@ -1159,16 +1179,16 @@ def dashboard(person_id, elder):
         st.toast(st.session_state.pop('dose_toast'),icon=':material/check_circle:')
     st.markdown('**오늘 시간표**')
     import math
-    per_page=3 if elder else 4
+    per_page=max(1,len(slots))
     total_pages=max(1,math.ceil(len(slots)/per_page))
     page_key='schedule_page_'+person_id
-    current_page=min(st.session_state.get(page_key,0),total_pages-1)
+    current_page=0
     visible_slots=slots[current_page*per_page:(current_page+1)*per_page]
     st.markdown("""<style>
     .st-key-mobile_schedule [data-testid="stVerticalBlock"]{gap:8px!important;}
-    .st-key-mobile_schedule button{min-height:62px!important;height:auto!important;width:100%!important;
-      border-radius:14px!important;padding:12px 14px!important;justify-content:flex-start!important;}
-    .st-key-mobile_schedule button p{font-size:17px!important;line-height:1.4!important;text-align:left!important;overflow-wrap:anywhere!important;}
+    .st-key-mobile_schedule button{min-height:46px!important;height:auto!important;width:100%!important;
+      border-radius:14px!important;padding:8px 12px!important;justify-content:flex-start!important;}
+    .st-key-mobile_schedule button p{font-size:16px!important;line-height:1.4!important;text-align:left!important;overflow-wrap:anywhere!important;}
     .st-key-mobile_schedule button[kind="primary"]{background:#e2f3e9!important;border:2px solid #238154!important;}
     .st-key-mobile_schedule button[kind="primary"] p{color:#145c38!important;-webkit-text-fill-color:#145c38!important;}
     @media(max-width:480px){.block-container{padding-top:0.5rem!important;padding-bottom:85px!important;}
@@ -1185,14 +1205,6 @@ def dashboard(person_id, elder):
             text=entry['time']+'   '+entry['m']['name']
             if st.button(text,icon=icon,key='dose_open_'+entry['m']['id']+'_'+entry['time'],help=label+' · '+entry['m']['dose'],use_container_width=True,type='primary' if done else 'secondary'):
                 dose_action_dialog(dict(entry['m']),pname,today,entry['time'],done)
-    if total_pages>1:
-        prev,center,nxt=st.columns([1,2,1])
-        if prev.button('',icon=':material/chevron_left:',help='이전 일정',disabled=current_page==0,key='schedule_prev'):
-            st.session_state[page_key]=current_page-1;st.rerun(scope='fragment')
-        center.caption(f'{current_page+1} / {total_pages}')
-        if nxt.button('',icon=':material/chevron_right:',help='다음 일정',disabled=current_page==total_pages-1,key='schedule_next'):
-            st.session_state[page_key]=current_page+1;st.rerun(scope='fragment')
-
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
