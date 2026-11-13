@@ -758,8 +758,30 @@ def save_followup(med_id,day,slot,action,guidance,source):
     return True,'저장했습니다.'
 
 
+def touch_choice(label, options, key):
+    """Large full-width native buttons; no tiny radio targets."""
+    if st.session_state.get(key) not in options:
+        st.session_state[key]=options[0]
+    with st.container(key='touch_'+key):
+        for index, option in enumerate(options):
+            active=st.session_state[key]==option
+            if st.button(('✓  ' if active else '')+option,
+                         key=key+'_pick_'+str(index),
+                         type='primary' if active else 'secondary',
+                         use_container_width=True):
+                st.session_state[key]=option
+                st.rerun()
+    return st.session_state[key]
+
+
 def missed_flow(elder):
-    st.subheader('⏰ 못 먹었어요')
+    st.markdown("""<style>
+    div[class*="st-key-touch_"] button{min-height:60px!important;padding:14px 18px!important;
+      border-radius:14px!important;text-align:left!important;justify-content:flex-start!important;
+      touch-action:manipulation;}
+    div[class*="st-key-touch_"] button p{font-size:20px!important;line-height:1.4!important;white-space:normal!important;}
+    </style>""",unsafe_allow_html=True)
+    st.subheader('못 먹은 약')
     options=unresolved_slots()
     if not options:
         st.success('확인할 약이 없습니다.');return
@@ -771,26 +793,31 @@ def missed_flow(elder):
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_help (med_id TEXT PRIMARY KEY REFERENCES fm_meds(id), guidance TEXT NOT NULL, source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)")
     guides=rows('SELECT * FROM fm_help WHERE med_id=?',(m['id'],))
     h=guides[0] if guides else {'guidance':'','source':'','phone':''}
-    st.markdown('### 1. 왜 못 먹었나요?')
-    reason=st.radio('사유',['깜빡했어요','약이 없었어요','몸이 불편했어요','먹었는지 모르겠어요','다른 이유'],key='why_'+key,label_visibility='collapsed')
+    st.markdown('**1. 이유 선택**')
+    reason=touch_choice('사유',['깜빡했어요','약이 없었어요','몸이 불편했어요','먹었는지 모르겠어요','다른 이유'],key='why_'+key)
     note=st.text_input('어떤 이유인가요?',placeholder='예시) 식사 시간이 달라졌어요',key='why_note_'+key) if reason=='다른 이유' else ''
     if reason=='몸이 불편했어요':
         st.warning('이상 반응이 의심되면 의료진에게 문의하세요. 호흡곤란·의식 저하 등 심한 증상은 119에 연락하세요.')
     if reason=='먹었는지 모르겠어요':
         st.info('다시 먹기 전에 복용 기록과 가족에게 먼저 확인하세요.')
         if st.button('📋 복용 기록 확인',key='check_history_'+key):history_dialog()
-    st.markdown('### 2. 놓쳤을 때의 지침을 아나요?')
-    known=st.radio('지침 확인',['아직 모르겠어요','알고 있어요'],key='know_'+key,horizontal=True,label_visibility='collapsed')
+    if not st.session_state.get('reason_next_'+key):
+        if st.button('다음',type='primary',use_container_width=True,key='reason_continue_'+key):
+            st.session_state['reason_next_'+key]=True
+            st.rerun()
+        return
+    st.markdown('**2. 놓쳤을 때 대처법을 아나요?**')
+    known=touch_choice('지침 확인',['아직 모르겠어요','알고 있어요'],key='know_'+key)
     detail='';source='';result='확인 대기'
     if known=='알고 있어요':
         if h['guidance']:st.info('등록된 지침: '+h['guidance']+' · 출처: '+h['source'])
-        detail=st.text_input('확인한 지침',value=h['guidance'],placeholder='예시) 이 약을 놓쳤을 때 약사에게 안내받은 내용',key='guide_'+key)
-        source=st.text_input('어디서 확인했나요?',value=h['source'],placeholder='예시) 약 봉투 / ○○약국',key='guide_source_'+key)
-        choice=st.radio('지금 상태',['아직 처리 전','안내에 따라 건너뛰었어요','안내에 따라 복용했어요'],key='guide_result_'+key)
+        detail=st.text_input('안내받은 내용',value=h['guidance'],placeholder='예시) 이 약을 놓쳤을 때 약사에게 안내받은 내용',key='guide_'+key)
+        source=st.text_input('확인한 곳',value=h['source'],placeholder='예시) 약 봉투 / ○○약국',key='guide_source_'+key)
+        choice=touch_choice('처리 결과',['아직 처리 전','안내에 따라 건너뛰었어요','안내에 따라 복용했어요'],key='guide_result_'+key)
         result={'아직 처리 전':'확인 대기','안내에 따라 건너뛰었어요':'안내 확인 후 건너뜀','안내에 따라 복용했어요':'안내 확인 후 복용 보고'}[choice]
     else:
         st.markdown('**약 봉투에서 ‘복용을 잊었을 때’를 확인하세요.**')
-        st.write('없거나 이해하기 어렵다면 약국·처방 의료진에게 문의하세요.')
+        st.write('모르면 약국에 문의하세요.')
         phone=st.text_input('문의할 약국·병원 전화번호',value=h['phone'],placeholder='예시) 02-123-4567',key='ask_phone_'+key)
         cleaned=re.sub(r'[\s()-]','',phone)
         if cleaned and re.fullmatch(r'\+?[0-9]{7,15}',cleaned):
@@ -800,7 +827,7 @@ def missed_flow(elder):
             last=rows('SELECT taken_at FROM fm_logs WHERE med_id=? ORDER BY taken_at DESC LIMIT 1',(m['id'],))
             message=f"복용 확인을 도와주세요.\n{m['person']} / {m['name']} / {m['dose']}\n놓친 일정: {day} {slot}\n이유: {reason} {note}\n마지막 복용 기록: {last[0]['taken_at'] if last else '없음 (미복용 확정 아님)'}\n약사에게 놓친 회차의 대처법을 확인해 주세요."
             st.text_area('복사해서 보내세요 · 자동 전송 아님',value=message,height=180,key='ask_family_'+key)
-    st.info('두 회분을 한꺼번에 먹지 마세요. 앱은 지금 복용할지 대신 결정하지 않습니다.')
+    st.info('임의로 두 회분을 함께 먹지 마세요.')
     if st.button('확인 대기로 저장' if result=='확인 대기' else '확인 결과 저장',type='primary',use_container_width=True,key='save_branch_'+key):
         if known=='알고 있어요' and (not detail.strip() or not source.strip()):
             st.warning('확인한 지침과 출처를 입력하세요.');return
@@ -862,21 +889,24 @@ def intake_table():
         for slot in sorted(times):
             actual='—';reason=''
             if slot in logmap:
-                status='✅ 복용';actual=datetime.fromisoformat(logmap[slot]['taken_at']).astimezone(TZ).strftime('%H:%M')
-            elif slot in fmap and fmap[slot]['action']=='안내 확인 후 건너뜀':status='⏭ 안내에 따라 건너뜀'
-            elif slot in fmap and fmap[slot]['action']=='안내 확인 후 복용 보고':status='📝 복용 보고 · 시각 확인 필요'
+                status='복용';actual=datetime.fromisoformat(logmap[slot]['taken_at']).astimezone(TZ).strftime('%H:%M')
+            elif slot in fmap and fmap[slot]['action']=='안내 확인 후 건너뜀':status='건너뜀'
+            elif slot in fmap and fmap[slot]['action']=='안내 확인 후 복용 보고':status='시각 미확인'
             elif slot in missmap:
-                reason=missmap[slot]['reason'];status='❔ 복용 여부 불확실' if '모르' in reason else '❌ 못 먹음 기록'
+                reason=missmap[slot]['reason'];status='확인 필요' if '모르' in reason else '못 먹음'
             else:
                 scheduled=datetime.combine(chosen,datetime.strptime(slot,'%H:%M').time(),TZ)
-                status='🕒 예정' if scheduled>now() else '❔ 확인 필요'
+                status='예정' if scheduled>now() else '확인 필요'
             if slot in missmap:reason=missmap[slot]['reason']+(' · '+missmap[slot]['note'] if missmap[slot]['note'] else '')
             output.append({'가족':m['person'],'약':m['name'],'예정':slot,'복용 시각':actual,'상태':status,'사유':reason})
     if output:
         output.sort(key=lambda r:(r['예정'],r['가족'],r['약']))
-        st.dataframe(output,hide_index=True,use_container_width=True)
+        details=st.checkbox('사유 보기',key='table_show_reason')
+        view=output if details else [{k:v for k,v in row.items() if k!='사유'} for row in output]
+        st.dataframe(view,hide_index=True,use_container_width=True)
     else:st.info('이 날짜에 남긴 기록이 없습니다.')
-    st.caption('확인 필요는 미복용 확정이 아닙니다. 지난 날짜는 저장된 기록만 표시합니다. 예정은 현재 등록 일정 기준입니다.')
+    with st.expander('표 읽는 방법'):
+        st.write('확인 필요: 복용 여부 미확인. 지난 날짜는 저장된 기록만 표시합니다. 오늘 예정은 현재 등록 일정 기준입니다.')
 
 
 @st.dialog('🔔 복용 알림', width='small')
@@ -958,13 +988,13 @@ def dashboard(person_id, elder):
             execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
     unread_count=len(unread)
-    bell_border = '#b42318' if unread_count else '#abc7c0'
+    bell_border = '#b42318' if unread_count else 'transparent'
     bell_bg = '#fff0ec' if unread_count else '#ffffff'
     st.markdown(f"""<style>
     [data-testid="stAppViewContainer"] .st-key-today_tools .st-key-notification_only [data-testid="stButton"] button,
     [data-testid="stAppViewContainer"] .st-key-today_tools .st-key-notification_only button{{
       border:3px solid {bell_border}!important;background:{bell_bg}!important;
-      box-shadow:none!important;animation:none!important;}}
+      box-shadow:none!important;outline:none!important;animation:none!important;flex-direction:column!important;gap:2px!important;}}
     [data-testid="stAppViewContainer"] .st-key-today_tools .st-key-notification_only button *{{
       color:{'#b42318' if unread_count else '#163047'}!important;
       -webkit-text-fill-color:{'#b42318' if unread_count else '#163047'}!important;}}
@@ -982,7 +1012,7 @@ def dashboard(person_id, elder):
         if st.button('',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
             st.session_state.page='놓친 약 확인';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
-            voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}",True)
+            voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}")
         if st.button('',icon=':material/history:',help='복용 기록',key='rail_history'):history_dialog()
     same_ingredient = False
     if norm(m['ingredient']):
