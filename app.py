@@ -1111,8 +1111,7 @@ def dashboard(person_id, elder):
         state_label='못 먹음 기록' if reason and '모르' not in reason else '복용 여부 미확인'
         needs_attention.append((item,state_label))
     if needs_attention:
-        lines=''.join('<div class="attention-item"><b>'+safe(x['time'])+'</b><span>'+safe(x['m']['name'])+'</span><small>'+safe(label)+'</small></div>' for x,label in needs_attention)
-        st.html('<style>.attention-box{background:#fff4ee;border:1px solid #e6b29a;border-left:4px solid #b94725;border-radius:14px;padding:12px 14px;margin:8px 0 12px;color:#71321e}.attention-title{display:flex;justify-content:space-between;gap:8px;font-size:16px;font-weight:800;color:#84341f}.attention-item{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:8px;font-size:14px;color:#71321e}.attention-item span{flex:1;overflow-wrap:anywhere}.attention-item small{font-size:12px;color:#794936}.attention-box p{font-size:12px;line-height:1.5;margin:9px 0 0;color:#794936}</style><section class="attention-box" role="status"><div class="attention-title"><span>! 복용 확인 필요</span><span>'+str(len(needs_attention))+'건</span></div>'+lines+'<p>예정 시간이 지났어요. 기록을 확인하세요. 지금 복용하라는 뜻은 아닙니다.</p></section>')
+        st.html('<div style="background:#fff4ee;border:1px solid #e6b29a;border-radius:12px;padding:10px 12px;color:#84341f;font-weight:750;font-size:15px">! 복용 확인 필요 '+str(len(needs_attention))+'건 · 아래 일정에서 확인</div>')
     if expired:st.warning(f'유효기간 지난 약 {expired}개 · 복용 금지')
     flash = st.session_state.pop('flash', None)
     if flash:
@@ -1127,11 +1126,7 @@ def dashboard(person_id, elder):
     choice_key=f'slot_v3_{person_id}_{today}'
     if st.session_state.get(choice_key) not in choice_map:
         st.session_state[choice_key]=next((k for k,x in choice_map.items() if not x['done']),choice_keys[0])
-    with schedule_col:
-        selected_key=st.selectbox('복용할 약 · 기록',choice_keys,
-            format_func=lambda k:f"{'✅ 완료' if choice_map[k]['done'] else '🕒 예정'} · {choice_map[k]['time']} · {choice_map[k]['m']['name']}",
-            key=choice_key,label_visibility='collapsed')
-    selected=choice_map[selected_key]
+    selected=choice_map[st.session_state[choice_key]]
     m, slot = selected['m'], selected['time']
     person_name=rows('SELECT name FROM fm_people WHERE id=?',(person_id,))
     expired_selected=m['expiry']<today
@@ -1150,7 +1145,13 @@ def dashboard(person_id, elder):
     if st.session_state.get('dose_toast'):
         st.toast(st.session_state.pop('dose_toast'),icon=':material/check_circle:')
     st.markdown('**오늘 시간표**')
-    for entry in slots:
+    import math
+    per_page=2 if elder else 3
+    total_pages=max(1,math.ceil(len(slots)/per_page))
+    page_key='schedule_page_'+person_id
+    current_page=min(st.session_state.get(page_key,0),total_pages-1)
+    visible_slots=slots[current_page*per_page:(current_page+1)*per_page]
+    for entry in visible_slots:
         identity=(entry['m']['id'],entry['time'])
         action=follow_map.get(identity,'')
         label='✓ 복용 완료' if entry['done'] else '↷ 건너뜀' if action=='안내 확인 후 건너뜀' else '못 먹음 · 확인' if identity in missed_keys else '예정' if entry['scheduled']>current else '복용 여부 확인'
@@ -1160,6 +1161,13 @@ def dashboard(person_id, elder):
             info.caption(entry['m']['dose'])
             if button.button(label,key='dose_open_'+entry['m']['id']+'_'+entry['time'],use_container_width=True,type='primary' if entry['done'] else 'secondary'):
                 dose_action_dialog(dict(entry['m']),pname,today,entry['time'],entry['done'])
+    if total_pages>1:
+        prev,center,nxt=st.columns([1,2,1])
+        if prev.button('이전',disabled=current_page==0,key='schedule_prev'):
+            st.session_state[page_key]=current_page-1;st.rerun(scope='fragment')
+        center.caption(f'{current_page+1} / {total_pages}')
+        if nxt.button('다음',disabled=current_page==total_pages-1,key='schedule_next'):
+            st.session_state[page_key]=current_page+1;st.rerun(scope='fragment')
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
