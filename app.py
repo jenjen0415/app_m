@@ -92,6 +92,7 @@ def initialize(_url):
     with database(True) as conn:
         for sql in [
             'CREATE TABLE IF NOT EXISTS fm_removed (med_id TEXT PRIMARY KEY, removed_at TEXT NOT NULL)',
+            'CREATE TABLE IF NOT EXISTS fm_hidden_people (person_id TEXT PRIMARY KEY)',
             'CREATE TABLE IF NOT EXISTS fm_people (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)',
             '''CREATE TABLE IF NOT EXISTS fm_meds (
             id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES fm_people(id),
@@ -196,12 +197,36 @@ def registration():
             else:
                 try:
                     with database(True) as conn:
-                        execute(conn, 'INSERT INTO fm_people(id,name) VALUES (?,?)', (str(uuid.uuid4()), name.strip()))
+                        new_person_id = str(uuid.uuid4())
+                        execute(conn, 'INSERT INTO fm_people(id,name) VALUES (?,?)', (new_person_id, name.strip()))
+                    st.session_state['pending_family_selection'] = new_person_id
                     st.rerun()
                 except Exception:
                     st.error('등록하지 못했습니다. 중복 이름 또는 DB 연결을 확인하세요.')
+        members = rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
+        if members:
+            st.markdown('**등록된 가족**')
+        for member in members:
+            left, right = st.columns([4,1])
+            left.write('👤 '+member['name'])
+            if right.button('',icon=':material/delete:',help='가족 삭제',key='remove_person_'+member['id']):
+                st.session_state['confirm_remove_person']=member['id']
+            if st.session_state.get('confirm_remove_person')==member['id']:
+                st.warning(f"{member['name']}님을 삭제하시겠습니까? 가족 목록과 앞으로의 복용 일정에서 제외됩니다. 기존 기록은 보관됩니다.")
+                yes,no=st.columns(2)
+                if yes.button('삭제하기',key='yes_person_'+member['id']):
+                    with database(True) as conn:
+                        execute(conn,'INSERT INTO fm_hidden_people(person_id) VALUES (?) ON CONFLICT(person_id) DO NOTHING',(member['id'],))
+                        execute(conn,'UPDATE fm_meds SET active=0 WHERE person_id=?',(member['id'],))
+                        execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(member['id'],))
+                    st.session_state.pop('confirm_remove_person',None)
+                    st.session_state['pending_family_selection']=''
+                    st.rerun()
+                if no.button('취소',key='no_person_'+member['id']):
+                    st.session_state.pop('confirm_remove_person',None)
+                    st.rerun()
     with tab2:
-        people = rows('SELECT * FROM fm_people ORDER BY name')
+        people = rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         if not people:
             st.info('먼저 가족을 등록하세요.')
             return
@@ -656,7 +681,7 @@ def home_screen(elder):
         title,add=st.columns([3,1])
         title.subheader('오늘의 복용')
         if add.button('＋ 등록',key='quick_add',use_container_width=True):registration()
-        people=rows('SELECT * FROM fm_people ORDER BY name')
+        people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         if not people:
             st.info('먼저 가족과 약을 등록하세요.')
             if st.button('＋ 가족 · 약 등록',type='primary',use_container_width=True):registration()
@@ -692,7 +717,7 @@ def home_screen(elder):
     else:
         st.subheader('가족')
         if st.button('＋ 가족 · 약 등록',use_container_width=True):registration()
-        people=rows('SELECT * FROM fm_people ORDER BY name')
+        people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         for person in people:st.write('👤 '+person['name'])
         if st.button('📷 초대 QR',use_container_width=True):share_dialog()
         with st.expander('사용 안내'):
@@ -809,7 +834,7 @@ def followup_history():
 
 @st.dialog('등록된 가족')
 def family_list():
-    people=rows('SELECT * FROM fm_people ORDER BY name')
+    people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
     if not people:
         st.info('등록된 가족이 없습니다.')
     for p in people:
@@ -819,7 +844,7 @@ def family_list():
 def intake_table():
     chosen=st.date_input('날짜',value=now().date(),key='table_day')
     day=chosen.isoformat()
-    people=rows('SELECT * FROM fm_people ORDER BY name')
+    people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
     ids=['all']+[p['id'] for p in people]
     names={p['id']:p['name'] for p in people};names['all']='가족 전체'
     who=st.selectbox('가족',ids,format_func=lambda x:names[x],key='table_person')
@@ -870,8 +895,13 @@ def dose_notifications(person_id, person_name, completed, total):
 def dashboard(person_id, elder):
     st.markdown('<style>\n.st-key-family_schedule_row [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:8px!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:first-child{width:25%!important;flex:0 0 25%!important;min-width:0!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:last-child{width:calc(75% - 8px)!important;flex:1 1 0!important;min-width:0!important;}\n</style>',unsafe_allow_html=True)
     # Select family before querying schedules; scalar ids keep selection stable.
-    people=rows('SELECT * FROM fm_people ORDER BY name')
+    people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
     names={p['id']:p['name'] for p in people}
+    preferred=st.session_state.pop('pending_family_selection',None)
+    if preferred in names:
+        st.session_state['today_family_compact']=preferred
+    elif st.session_state.get('today_family_compact') not in names:
+        st.session_state['today_family_compact']=next(iter(names),None)
     with st.container(key='family_schedule_row'):
         family_col,schedule_col=st.columns([1,3],gap='small')
     with family_col:
