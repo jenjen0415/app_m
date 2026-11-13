@@ -950,7 +950,7 @@ def dashboard(person_id, elder):
                     execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
                 st.session_state['open_notices_'+person_id]=True
                 st.rerun(scope='fragment')
-        if st.button('못 먹음',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
+        if st.button('',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
             st.session_state.page='놓친 약 확인';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
             voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}",True)
