@@ -42,7 +42,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 TZ = ZoneInfo('Asia/Seoul')
-st.set_page_config(page_title='가족 약 지킴이', page_icon='💊', layout='centered', initial_sidebar_state='collapsed')
+st.set_page_config(page_title='온약 ONYAK', page_icon='💊', layout='centered', initial_sidebar_state='collapsed')
 
 
 def setting(key, default=''):
@@ -94,6 +94,7 @@ def initialize(_url):
             'CREATE TABLE IF NOT EXISTS fm_removed (med_id TEXT PRIMARY KEY, removed_at TEXT NOT NULL)',
             'CREATE TABLE IF NOT EXISTS fm_hidden_people (person_id TEXT PRIMARY KEY)',
             '''CREATE TABLE IF NOT EXISTS fm_contact_tasks (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, med_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)''',
+            '''CREATE TABLE IF NOT EXISTS fm_photos (med_id TEXT PRIMARY KEY, image_b64 TEXT NOT NULL, updated TEXT NOT NULL)''',
             'CREATE TABLE IF NOT EXISTS fm_people (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)',
             '''CREATE TABLE IF NOT EXISTS fm_meds (
             id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES fm_people(id),
@@ -186,9 +187,8 @@ def take(med_id, day, slot, duplicate_confirmed=False):
 
 
 @st.dialog('가족 · 약 등록', width='small')
-def registration():
-    tab1, tab2 = st.tabs(['👤 가족', '💊 약'])
-    with tab1:
+def registration(mode):
+    if mode == 'family':
         with st.form('person_form'):
             name = st.text_input('가족 이름 또는 별칭', max_chars=24)
             submitted = st.form_submit_button('가족 등록', use_container_width=True)
@@ -226,7 +226,7 @@ def registration():
                 if no.button('취소',key='no_person_'+member['id']):
                     st.session_state.pop('confirm_remove_person',None)
                     st.rerun()
-    with tab2:
+    if mode == 'medicine':
         people = rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         if not people:
             st.info('먼저 가족을 등록하세요.')
@@ -404,10 +404,10 @@ def main():
     button{min-height:42px!important;}
     [data-testid="stDialog"] [role="dialog"]{max-height:90dvh;overflow-y:auto;}
     </style>''', unsafe_allow_html=True)
-    if not st.session_state.get('launch_seen_v8', False):
-        st.session_state.launch_seen_v8 = True
-        st.html('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 4s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} .launch-content{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}.launch-progress{width:44px;height:44px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;animation:launch-spin .85s linear infinite;box-sizing:border-box}.launch-status{color:#fff!important;-webkit-text-fill-color:#fff!important;font:500 15px sans-serif;letter-spacing:.2px;text-align:center}@keyframes launch-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.launch-progress{animation:none;border-color:#fff}}</style><div class="launch-screen" aria-label="앱 시작"><div class="launch-content"><img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjgiIGhlaWdodD0iNjgiIHZpZXdCb3g9IjAgMCA2OCA2OCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSLqsIDsobEg7JW9IOyngO2CtOydtCDroZzqs6AiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+ICA8cGF0aCBkPSJNMTggMzJMMzQgMThMNTAgMzIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4gPHBhdGggZD0iTTIzIDMxVjQ4QzIzIDUwIDI1IDUyIDI3IDUySDQxQzQzIDUyIDQ1IDUwIDQ1IDQ4VjMxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMy41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4gPHJlY3QgeD0iMjkiIHk9IjMwIiB3aWR0aD0iMTAiIGhlaWdodD0iMjAiIHJ4PSI1IiB0cmFuc2Zvcm09InJvdGF0ZSgzNSAzNCA0MCkiIGZpbGw9IiNmZmYiLz4gPHBhdGggZD0iTTMwIDM3TDM4IDQzIiBzdHJva2U9IiMxNzZmNzAiIHN0cm9rZS13aWR0aD0iMiIvPiA8L3N2Zz4=" alt="집과 알약 로고" style="width:96px;height:96px;display:block;max-width:none;object-fit:contain" /><div class="launch-progress" role="status" aria-label="시작 화면 표시 중"></div><div class="launch-status">앱을 시작하고 있어요</div></div></div>')
-    elder = st.toggle('👵 큰 글씨 · 음성 안내', key='elder_mode')
+    if not st.session_state.get('launch_seen_onyak_v1', False):
+        st.session_state.launch_seen_onyak_v1 = True
+        st.html('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 4s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} .launch-content{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}.launch-progress{width:44px;height:44px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;animation:launch-spin .85s linear infinite;box-sizing:border-box}.launch-status{color:#fff!important;-webkit-text-fill-color:#fff!important;font:500 15px sans-serif;letter-spacing:.2px;text-align:center}@keyframes launch-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.launch-progress{animation:none;border-color:#fff}}</style><div class="launch-screen" aria-label="앱 시작"><div class="launch-content"><img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjgiIGhlaWdodD0iNjgiIHZpZXdCb3g9IjAgMCA2OCA2OCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSLqsIDsobEg7JW9IOyngO2CtOydtCDroZzqs6AiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+ICA8cGF0aCBkPSJNMTggMzJMMzQgMThMNTAgMzIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4gPHBhdGggZD0iTTIzIDMxVjQ4QzIzIDUwIDI1IDUyIDI3IDUySDQxQzQzIDUyIDQ1IDUwIDQ1IDQ4VjMxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMy41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4gPHJlY3QgeD0iMjkiIHk9IjMwIiB3aWR0aD0iMTAiIGhlaWdodD0iMjAiIHJ4PSI1IiB0cmFuc2Zvcm09InJvdGF0ZSgzNSAzNCA0MCkiIGZpbGw9IiNmZmYiLz4gPHBhdGggZD0iTTMwIDM3TDM4IDQzIiBzdHJva2U9IiMxNzZmNzAiIHN0cm9rZS13aWR0aD0iMiIvPiA8L3N2Zz4=" alt="집과 알약 로고" style="width:96px;height:96px;display:block;max-width:none;object-fit:contain" /><div class="launch-name" style="color:#ffffff;font-size:32px;font-weight:800;letter-spacing:2px;line-height:1.3;text-align:center">온약<span style="display:block;font-size:12px;letter-spacing:5px;margin-top:8px;font-weight:600;color:#ffffff">ONYAK</span></div><div class="launch-progress" role="status" aria-label="시작 화면 표시 중"></div><div class="launch-status">앱을 시작하고 있어요</div></div></div>')
+    elder = st.toggle('큰 글씨', key='elder_mode')
     if elder:
         st.markdown('''<style>
         /* Accessible large-print layout. Do not force a fixed viewport height:
@@ -449,9 +449,7 @@ def main():
         </style>''', unsafe_allow_html=True)
     home_screen(elder)
     storage = '영구 DB 연결' if PG else '데모 저장 · 재시작 시 유실 가능'
-    if st.session_state.get('page') != '놓친 약 확인':
-      with st.expander('ⓘ 안전 · 저장 안내'):
-        st.caption(f'{storage} · 한국 시간 · 열린 화면에서만 일정 확인. 처방을 대체하지 않으며 약물 상호작용 전체를 판별하지 않습니다.')
+
 
 
 
@@ -680,13 +678,10 @@ def home_screen(elder):
             if col.button(label if elder else '',icon=icon,help=label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
                 st.session_state.page=target;st.rerun()
     if page=='오늘 약 먹기':
-        title,add=st.columns([3,1])
-        title.subheader('오늘의 복용')
-        if add.button('＋ 등록',key='quick_add',use_container_width=True):registration()
+        st.subheader('오늘의 복용')
         people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         if not people:
-            st.info('먼저 가족과 약을 등록하세요.')
-            if st.button('＋ 가족 · 약 등록',type='primary',use_container_width=True):registration()
+            st.info('아래 가족 메뉴에서 가족을 등록한 뒤, 약통에서 약을 등록하세요.')
         else:
             dashboard(people[0]['id'],elder)
     elif page=='놓친 약 확인':
@@ -695,15 +690,18 @@ def home_screen(elder):
         missed_flow(elder)
     elif page=='약 보관함':
         st.subheader('약통')
-        c1,c2=st.columns(2)
-        if c1.button('＋ 약 등록',use_container_width=True):registration()
-        if c2.button('💊 목록 보기',use_container_width=True):inventory()
+        if st.button('＋ 약 등록',use_container_width=True):registration('medicine')
         meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE NOT EXISTS (SELECT 1 FROM fm_removed r WHERE r.med_id=m.id) ORDER BY m.expiry')
         if not meds:st.info('등록한 약이 없습니다.')
         for m in meds:
             expired=m['expiry']<now().date().isoformat()
             with st.container(border=True):
-                info,edit,delete=st.columns([6,1,1],gap='small')
+                photo,info,edit,delete=st.columns([2,5,1,1],gap='small')
+                saved_photo=rows('SELECT image_b64 FROM fm_photos WHERE med_id=?',(m['id'],))
+                if saved_photo:
+                    import base64
+                    photo.image(base64.b64decode(saved_photo[0]['image_b64']),use_container_width=True)
+                if photo.button('',icon=':material/photo_camera:',help='약 사진 촬영·변경',key='photo_'+m['id']):medicine_photo(m['id'],m['name'])
                 info.markdown(f"**💊 {safe(m['name'])}**")
                 info.write(f"{m['person']} · {m['dose']}")
                 info.caption(('⛔ 기한 지남 ' if expired else '📅 유효기간 ')+m['expiry'])
@@ -715,10 +713,10 @@ def home_screen(elder):
         if st.button('✅ 먹은 기록',use_container_width=True):history_dialog()
         if st.button('✏️ 못 먹은 사유 적기',key='reason_from_history',use_container_width=True):
             st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
-        with st.expander('🕒 못 먹은 기록'):followup_history()
+        if st.button('못 먹은 기록',icon=':material/history:',use_container_width=True):missed_records_dialog()
     else:
         st.subheader('가족')
-        if st.button('＋ 가족 · 약 등록',use_container_width=True):registration()
+        if st.button('＋ 가족 등록',use_container_width=True):registration('family')
         people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         if st.session_state.pop('family_removed_notice',False):
             st.toast('가족을 삭제했습니다.',icon=':material/check_circle:')
@@ -729,9 +727,6 @@ def home_screen(elder):
                 if action.button('',icon=':material/delete:',help=person['name']+' 삭제',key='family_page_delete_'+person['id']):
                     remove_family_dialog(person['id'],person['name'])
         if st.button('📷 초대 QR',use_container_width=True):share_dialog()
-        with st.expander('사용 안내'):
-            st.write('오늘: 복용 확인 · 약통: 약 관리 · 기록: 복용 내역 · 가족: 등록과 초대')
-            st.caption('로그인 없는 체험용입니다. 주소를 아는 사람은 기록을 수정할 수 있습니다. 별칭을 사용하세요. 앱 종료·화면 잠금 중 알림은 보장되지 않습니다.')
 
 
 def unresolved_slots():
@@ -892,6 +887,16 @@ def missed_flow(elder):
         return
 
 
+@st.dialog('못 먹은 기록',width='large')
+def missed_records_dialog():
+    followup_history()
+
+
+@st.dialog('못 먹은 사유',width='large')
+def missed_reasons_dialog():
+    missed_history()
+
+
 def followup_history():
     labels={'확인 대기':'확인 중','안내 확인 후 건너뜀':'안내 확인 후 건너뜀','안내 확인 후 복용 보고':'안내 확인 후 복용했다고 보고','기록 확인 완료':'기록·가족 확인 완료'}
     records=rows('SELECT f.*,m.name AS medicine,p.name AS person FROM fm_followup f JOIN fm_meds m ON m.id=f.med_id JOIN fm_people p ON p.id=m.person_id ORDER BY f.recorded_at DESC LIMIT 100')
@@ -905,8 +910,40 @@ def followup_history():
                 execute(conn,"UPDATE fm_followup SET action='확인 대기' WHERE id=?",(r['id'],))
                 execute(conn,'''INSERT INTO fm_missed VALUES (?,?,?,?,?,?,?) ON CONFLICT(med_id,day,slot) DO NOTHING''',(str(uuid.uuid4()),r['med_id'],r['day'],r['slot'],'사정상 못 먹었어요','후속 조치 재확인',now().isoformat()))
             st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
-    with st.expander('이전에 남긴 못 먹은 사유'):
-        missed_history()
+    st.markdown('**못 먹은 사유**')
+    missed_history()
+
+
+@st.dialog('약 사진', width='small')
+def medicine_photo(med_id, name):
+    import base64
+    from PIL import Image, ImageOps, UnidentifiedImageError
+    st.markdown('**'+safe(name)+'**')
+    current=rows('SELECT image_b64 FROM fm_photos WHERE med_id=?',(med_id,))
+    if current:
+        st.image(base64.b64decode(current[0]['image_b64']),use_container_width=True)
+    st.caption('모양 확인용 사진입니다. 사진만으로 약 종류·복용법을 판별하지 않습니다.')
+    mode=st.segmented_control('사진 추가 방법',['촬영','앨범'],default='촬영',key='photo_mode_'+med_id)
+    image=st.camera_input('약이나 포장 사진 찍기',key='camera_'+med_id) if mode=='촬영' else st.file_uploader('사진 선택',type=['jpg','jpeg','png','webp'],key='upload_photo_'+med_id)
+    if image and st.button('사진 저장',type='primary',use_container_width=True):
+        try:
+            if image.size>10*1024*1024:
+                st.warning('10MB 이하 사진을 선택하세요.');return
+            with Image.open(image) as original:
+                if original.width*original.height>25000000:
+                    st.warning('사진 크기가 너무 큽니다. 작은 사진을 선택하세요.');return
+                pic=ImageOps.exif_transpose(original).convert('RGB')
+                pic.thumbnail((1000,1000))
+                buffer=io.BytesIO();pic.save(buffer,format='JPEG',quality=85)
+            encoded=base64.b64encode(buffer.getvalue()).decode('ascii')
+            with database(True) as conn:
+                execute(conn,'INSERT INTO fm_photos VALUES (?,?,?) ON CONFLICT(med_id) DO UPDATE SET image_b64=excluded.image_b64,updated=excluded.updated',(med_id,encoded,now().isoformat()))
+            st.rerun()
+        except (UnidentifiedImageError,OSError,ValueError,Image.DecompressionBombError):
+            st.error('사진을 읽지 못했습니다. JPG 또는 PNG 사진으로 다시 시도하세요.')
+    if current and st.button('사진 삭제',use_container_width=True):
+        with database(True) as conn:execute(conn,'DELETE FROM fm_photos WHERE med_id=?',(med_id,))
+        st.rerun()
 
 
 @st.dialog('가족 삭제')
@@ -1000,6 +1037,34 @@ def dose_notifications(person_id, person_name, completed, total):
     if not notices and not tasks:st.info('알림이 없습니다.')
 
 
+@st.dialog('복용 확인',width='small')
+def dose_action_dialog(m, person, day, slot, done):
+    st.subheader(m['name'])
+    st.write(f"{person} · {slot} · {m['dose']}")
+    if done:
+        st.success('이미 복용 기록이 있습니다.');return
+    early=datetime.combine(date.fromisoformat(day),datetime.strptime(slot,'%H:%M').time(),TZ)>now()
+    early_ok=not early
+    if early:
+        st.warning('예정 시각 전입니다. 등록된 처방 시각을 확인하세요.')
+        early_ok=st.checkbox('복용 시각을 확인했어요',key='dialog_early')
+    st.caption('사진·가족·약 이름과 실제 복용 여부를 먼저 확인하세요.')
+    confirm=st.checkbox('오늘 같은 성분의 다른 약 기록도 확인했어요',key='dialog_ingredient')
+    if st.button('먹었어요',icon=':material/check:',type='primary',use_container_width=True,disabled=not early_ok):
+        ok,msg=take(m['id'],day,slot,confirm)
+        if ok:
+            st.session_state['dose_toast']=f"{person} · {m['name']} ({slot}) 복용을 기록했습니다."
+            st.rerun()
+        else:st.warning(msg)
+    if st.button('못 먹었어요 / 먹었는지 몰라요',icon=':material/pill_off:',use_container_width=True):
+        for k in list(st.session_state):
+            if k.startswith('mq_'):del st.session_state[k]
+        selected=dict(m);selected['person']=person
+        st.session_state['mq_target']={'m':selected,'day':day,'slot':slot}
+        st.session_state['mq_step']='reason';st.session_state['mq_back_stack']=[]
+        st.session_state.page='놓친 약 확인';st.rerun()
+
+
 @st.fragment(run_every='20s')
 def dashboard(person_id, elder):
     st.markdown('<style>\n.st-key-family_schedule_row [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:8px!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:first-child{width:25%!important;flex:0 0 25%!important;min-width:0!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:last-child{width:calc(75% - 8px)!important;flex:1 1 0!important;min-width:0!important;}\n</style>',unsafe_allow_html=True)
@@ -1032,14 +1097,28 @@ def dashboard(person_id, elder):
     expired = sum(m['expiry'] < today for m in meds)
     soon = sum(0 <= (date.fromisoformat(m['expiry']) - current.date()).days <= 30 for m in meds)
 
+    # Distinguish missing records from confirmed missed intake; never infer ingestion.
+    missed_status=rows('SELECT med_id,slot,reason FROM fm_missed WHERE day=?',(today,))
+    missed_map={(x['med_id'],x['slot']):x['reason'] for x in missed_status}
+    outcomes=rows('SELECT med_id,slot,action FROM fm_followup WHERE day=?',(today,))
+    outcome_map={(x['med_id'],x['slot']):x['action'] for x in outcomes}
+    needs_attention=[]
+    for item in due:
+        ident=(item['m']['id'],item['time'])
+        if outcome_map.get(ident) in ('안내 확인 후 건너뜀','안내 확인 후 복용 보고','기록 확인 완료'):
+            continue
+        reason=missed_map.get(ident,'')
+        state_label='못 먹음 기록' if reason and '모르' not in reason else '복용 여부 미확인'
+        needs_attention.append((item,state_label))
+    if needs_attention:
+        lines=''.join('<div class="attention-item"><b>'+safe(x['time'])+'</b><span>'+safe(x['m']['name'])+'</span><small>'+safe(label)+'</small></div>' for x,label in needs_attention)
+        st.html('<style>.attention-box{background:#fff4ee;border:1px solid #e6b29a;border-left:4px solid #b94725;border-radius:14px;padding:12px 14px;margin:8px 0 12px;color:#71321e}.attention-title{display:flex;justify-content:space-between;gap:8px;font-size:16px;font-weight:800;color:#84341f}.attention-item{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:8px;font-size:14px;color:#71321e}.attention-item span{flex:1;overflow-wrap:anywhere}.attention-item small{font-size:12px;color:#794936}.attention-box p{font-size:12px;line-height:1.5;margin:9px 0 0;color:#794936}</style><section class="attention-box" role="status"><div class="attention-title"><span>! 복용 확인 필요</span><span>'+str(len(needs_attention))+'건</span></div>'+lines+'<p>예정 시간이 지났어요. 기록을 확인하세요. 지금 복용하라는 뜻은 아닙니다.</p></section>')
     if expired:st.warning(f'유효기간 지난 약 {expired}개 · 복용 금지')
     flash = st.session_state.pop('flash', None)
     if flash:
         (st.success if flash[0] else st.warning)(flash[1])
     if not slots:
         schedule_col.info('등록된 복용 일정이 없습니다.')
-        if elder:
-            speech('오늘 등록된 복용 일정이 없습니다.')
         return
     # 한 회차씩 선택하므로 약이 많아져도 본문 길이가 늘어나지 않습니다.
     ordered = slots  # chronological regardless of completion
@@ -1068,25 +1147,19 @@ def dashboard(person_id, elder):
     follow_rows=rows('SELECT med_id,slot,action FROM fm_followup WHERE day=?',(today,))
     follow_map={(r['med_id'],r['slot']):r['action'] for r in follow_rows}
     st.html('<style>.st-key-dose_confirm button{background:#176f57!important;border-color:#176f57!important;min-height:58px!important;border-radius:16px!important}.st-key-dose_confirm button p,.st-key-dose_confirm button span{color:#fff!important;-webkit-text-fill-color:#fff!important}</style>')
-    timeline_parts=[]
-    reviewed=0
+    if st.session_state.get('dose_toast'):
+        st.toast(st.session_state.pop('dose_toast'),icon=':material/check_circle:')
+    st.markdown('**오늘 시간표**')
     for entry in slots:
         identity=(entry['m']['id'],entry['time'])
         action=follow_map.get(identity,'')
-        if entry['done']:
-            symbol,label='✓','복용 기록';reviewed+=1
-        elif action=='안내 확인 후 건너뜀':
-            symbol,label='↷','지침에 따라 건너뜀';reviewed+=1
-        elif action=='안내 확인 후 복용 보고':
-            symbol,label='?','복용 보고 · 실제 시각 미기록'
-        elif identity in missed_keys:
-            symbol,label='!','못 먹음 · 확인 중'
-        elif entry['scheduled']>current:
-            symbol,label='◷','예정'
-        else:
-            symbol,label='?','복용 여부 미확인'
-        timeline_parts.append(f'<div class="schedule-event {"is-taken" if entry["done"] else "is-pending"}"><time>{safe(entry["time"])}</time><span class="schedule-node">{symbol}</span><div><strong>{safe(entry["m"]["name"])}</strong><small>{safe(entry["m"]["dose"])}</small><span class="event-state">{label}</span></div></div>')
-    st.html('<style>.schedule-event.is-taken{background:#e8f5ec;border-radius:14px;padding-top:12px;padding-left:8px;padding-right:8px;margin-bottom:12px}.schedule-event.is-taken .schedule-node{background:#176f46;border-color:#176f46;color:#fff;font-weight:900}.schedule-event.is-taken .event-state{background:#176f46;border-color:#176f46;color:#fff;font-weight:750}.schedule-event.is-taken strong{color:#145b38}.schedule-event.is-pending .schedule-node{background:#fff;border-color:#c4cbc7;color:#59665f}.schedule-event.is-pending .event-state{background:#f5f6f5;color:#536259;border-color:#d6ded9}.day-route{background:#fff;border:1px solid #d7e3de;border-radius:20px;padding:18px;margin:14px 0;color:#183f36}.day-route h3{font-size:20px;margin:0 0 8px;color:#183f36}.day-route .route-summary{font-size:14px;color:#405b50;margin:0 0 18px}.schedule-event{display:grid;grid-template-columns:52px 24px minmax(0,1fr);gap:10px;position:relative;padding:0 0 24px}.schedule-event:not(:last-child):before{content:"";position:absolute;left:73px;top:24px;bottom:0;width:2px;background:#cadbd2}.schedule-event time{font-size:15px;font-weight:750;color:#254b3f;padding-top:3px}.schedule-node{width:24px;height:24px;border:1px solid #809e8c;background:#f2f7f3;border-radius:50%;text-align:center;font-size:15px;color:#234b3e;z-index:1}.schedule-event strong{display:block;font-size:18px;color:#183f36;overflow-wrap:anywhere}.schedule-event small{display:block;font-size:14px;color:#455f53;margin-top:4px}.event-state{display:inline-block;font-size:13px;color:#2c5140;border:1px solid #c7d8ce;border-radius:6px;padding:3px 7px;margin-top:7px}.schedule-event:last-child{padding-bottom:0}</style><section class="day-route"><h3>'+safe(pname)+' · 오늘 시간표</h3><p class="route-summary">목표: 일정마다 안전하게 확인하기 · '+str(reviewed)+' / '+str(len(slots))+' 확인 완료</p>'+''.join(timeline_parts)+'</section>')
+        label='✓ 복용 완료' if entry['done'] else '↷ 건너뜀' if action=='안내 확인 후 건너뜀' else '못 먹음 · 확인' if identity in missed_keys else '예정' if entry['scheduled']>current else '복용 여부 확인'
+        with st.container(border=True):
+            info,button=st.columns([3,2],gap='small')
+            info.markdown(f"**{entry['time']} · {safe(entry['m']['name'])}**")
+            info.caption(entry['m']['dose'])
+            if button.button(label,key='dose_open_'+entry['m']['id']+'_'+entry['time'],use_container_width=True,type='primary' if entry['done'] else 'secondary'):
+                dose_action_dialog(dict(entry['m']),pname,today,entry['time'],entry['done'])
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
@@ -1125,48 +1198,6 @@ def dashboard(person_id, elder):
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
             voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}")
         if st.button('',icon=':material/history:',help='복용 기록',key='rail_history'):history_dialog()
-    same_ingredient = False
-    if norm(m['ingredient']):
-        hist = rows('''SELECT m.id,m.ingredient FROM fm_logs l JOIN fm_meds m ON m.id=l.med_id
-                      WHERE m.person_id=? AND l.day=?''', (person_id, today))
-        same_ingredient = any(r['id'] != m['id'] and norm(r['ingredient']) == norm(m['ingredient']) for r in hist)
-    confirmed = False
-    if same_ingredient and not selected['done']:
-        confirmed = st.checkbox('⚠ 동일 성분 기록 있음 · 약사에게 확인했어요', key=f'confirm_{m["id"]}_{slot}_{today}')
-    early_confirmed = True
-    if early and not selected['done']:
-        early_confirmed = st.checkbox('예정 시각 전입니다 · 처방에 맞는 복용인지 확인했어요', key=f'early_{m["id"]}_{slot}_{today}')
-    follow = rows('SELECT action FROM fm_followup WHERE med_id=? AND day=? AND slot=?',(m['id'],today,slot))
-    resolved = bool(follow and follow[0]['action'] != '확인 대기')
-    if resolved:
-        st.info('후속 조치가 기록된 회차입니다. 수정은 기록 → 후속 조치 → 다시 확인하기에서 진행하세요.')
-    disabled = resolved or selected['done'] or expired_selected or not early_confirmed or (same_ingredient and not confirmed)
-    if st.button('복용 완료' if not selected['done'] else '기록 완료', icon=':material/check:',key='dose_confirm',type='primary', disabled=disabled, use_container_width=True):
-        result = take(m['id'], today, slot, confirmed)
-        st.session_state.flash = result
-        st.rerun(scope='fragment')
-    if not selected['done'] and not early:
-
-        if st.button('못 먹음 · 복용 여부 모름',icon=':material/pill_off:',key='dose_exception',use_container_width=True):
-            for k in list(st.session_state):
-                if k.startswith('mq_'):del st.session_state[k]
-            selected_m=dict(m);selected_m['person']=pname
-            st.session_state['mq_target']={'m':selected_m,'day':today,'slot':slot}
-            st.session_state['mq_step']='reason'
-            st.session_state['mq_back_stack']=[]
-            st.session_state.page='놓친 약 확인'
-            st.rerun()
-    if elder:
-        message = f"{slot}, {m['name']}. {m['dose']}. {state}."
-        signature = '|'.join(f"{s['m']['id']}:{s['time']}" for s in due)
-        auto = bool(signature and st.session_state.get('announced') != signature)
-        if auto:
-            message = f'복용 시간이 된 일정이 {len(due)}개 있습니다. 화면에서 확인하세요. ' + message
-            st.session_state.announced = signature
-        speech(message, auto)
-
-
-
 if __name__ == '__main__':
     try:
         main()
