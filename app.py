@@ -1062,29 +1062,27 @@ def dashboard(person_id, elder):
     completed_slots=sum(x['done'] for x in slots)
     status_icon='✓' if selected['done'] else '!' if expired_selected else '◷'
     status_label='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '복용 예정' if early else '복용 여부 확인'
-    # Compact illustrated card: house character, not a distorted medicine shape.
+    # No mascot: typography-led schedule card with a single clear information hierarchy.
     st.html(f"""<style>
-    .daily-card{{margin:12px 0 18px;border:1px solid #c9dcd3;border-radius:24px;background:#fffefa;overflow:hidden;color:#173f36;}}
-    .daily-card *{{box-sizing:border-box;}}
-    .daily-card .daily-head{{display:flex;align-items:center;gap:14px;padding:16px 18px;background:#edf4e8;}}
-    .daily-card .home-friend{{position:relative;width:48px;height:42px;border-radius:10px;background:#add4bd;border:2px solid #285746;margin-top:12px;flex:none;}}
-    .daily-card .home-friend:before{{content:'';position:absolute;left:3px;top:-18px;width:33px;height:33px;background:#add4bd;border-left:2px solid #285746;border-top:2px solid #285746;transform:rotate(45deg);border-radius:5px;}}
-    .daily-card .home-face{{position:relative;z-index:1;text-align:center;line-height:37px;font-size:20px;font-weight:bold;color:#285746;}}
-    .daily-card .daily-head strong{{display:block;font-size:21px;color:#173f36;}}
-    .daily-card .daily-head small{{display:block;font-size:14px;margin-top:4px;color:#3e5a4e;}}
-    .daily-card .daily-body{{display:flex;gap:18px;align-items:center;padding:22px 18px;}}
-    .daily-card .daily-time{{font-size:32px;font-weight:850;letter-spacing:-1px;color:#173f36;flex:none;}}
-    .daily-card .daily-medicine{{border-left:2px solid #d3e2d8;padding-left:18px;min-width:0;}}
-    .daily-card .daily-medicine b{{display:block;font-size:25px;line-height:1.35;color:#173f36;overflow-wrap:anywhere;}}
-    .daily-card .daily-medicine span{{display:block;font-size:18px;color:#3b554a;margin-top:6px;line-height:1.5;overflow-wrap:anywhere;}}
-    .daily-card .daily-bottom{{display:flex;justify-content:space-between;padding:11px 18px;border-top:1px dashed #d3dfd5;font-size:14px;background:#f8faf4;color:#355449;gap:8px;}}
-    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:16px!important;min-height:56px!important;}}
+    .schedule-card{{margin:14px 0 18px;background:#fff;border:1px solid #d7e3de;border-radius:22px;overflow:hidden;box-shadow:0 6px 20px #163f3508;color:#163f35;}}
+    .schedule-card *{{box-sizing:border-box;}}
+    .schedule-card .schedule-head{{display:flex;justify-content:space-between;align-items:center;padding:15px 18px;border-bottom:1px solid #edf1ee;gap:10px;}}
+    .schedule-card .schedule-person{{font-size:18px;font-weight:750;color:#244e42;}}
+    .schedule-card .schedule-status{{font-size:13px;font-weight:700;background:#eef4f0;color:#385c4b;border-radius:8px;padding:6px 9px;}}
+    .schedule-card .schedule-main{{display:flex;align-items:center;gap:18px;padding:24px 18px;}}
+    .schedule-card .schedule-time{{flex:none;font-size:32px;font-weight:850;letter-spacing:-1px;color:#176f57;}}
+    .schedule-card .schedule-drug{{border-left:1px solid #dce7e0;padding-left:18px;min-width:0;}}
+    .schedule-card .schedule-drug strong{{display:block;font-size:26px;line-height:1.35;color:#183d34;overflow-wrap:anywhere;}}
+    .schedule-card .schedule-drug span{{display:block;margin-top:8px;font-size:18px;line-height:1.5;color:#455e53;overflow-wrap:anywhere;}}
+    .schedule-card .schedule-foot{{padding:12px 18px;background:#f7faf8;border-top:1px solid #edf1ee;display:flex;justify-content:space-between;font-size:14px;color:#456153;}}
+    .schedule-card .schedule-foot b{{color:#234f3e;}}
+    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:16px!important;min-height:58px!important;}}
     .st-key-dose_confirm button p,.st-key-dose_confirm button span{{color:#fff!important;-webkit-text-fill-color:#fff!important;}}
-    @media(max-width:380px){{.daily-card .daily-body{{gap:12px;padding:18px 12px;}}.daily-card .daily-medicine{{padding-left:12px;}}.daily-card .daily-time{{font-size:27px;}}.daily-card .daily-medicine b{{font-size:22px;}}}}
-    </style><section class="daily-card" aria-label="복용 일정">
-    <div class="daily-head"><div class="home-friend" aria-hidden="true"><div class="home-face">•ᴗ•</div></div><div><strong>{safe(pname)}의 약</strong><small>{'기록했어요. 잘 챙기셨어요!' if selected['done'] else '시간과 약을 확인해요'}</small></div></div>
-    <div class="daily-body"><div class="daily-time">{safe(slot)}</div><div class="daily-medicine"><b>{safe(m['name'])}</b><span>{safe(m['dose'])}</span></div></div>
-    <div class="daily-bottom"><span>{safe(status_label)}</span><span>오늘 기록 <b>{completed_slots}/{len(slots)}</b></span></div></section>""")
+    @media(max-width:380px){{.schedule-card .schedule-main{{padding:20px 14px;gap:12px;}}.schedule-card .schedule-time{{font-size:27px;}}.schedule-card .schedule-drug{{padding-left:12px;}}.schedule-card .schedule-drug strong{{font-size:23px;}}}}
+    </style><section class="schedule-card" aria-label="복용 일정">
+    <header class="schedule-head"><span class="schedule-person">{safe(pname)}</span><span class="schedule-status">{safe(status_label)}</span></header>
+    <div class="schedule-main"><div class="schedule-time">{safe(slot)}</div><div class="schedule-drug"><strong>{safe(m['name'])}</strong><span>{safe(m['dose'])}</span></div></div>
+    <footer class="schedule-foot"><span>오늘 기록</span><b>{completed_slots} / {len(slots)}회</b></footer></section>""")
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
