@@ -1067,6 +1067,7 @@ def dashboard(person_id, elder):
     missed_keys={(r['med_id'],r['slot']) for r in missed_rows}
     follow_rows=rows('SELECT med_id,slot,action FROM fm_followup WHERE day=?',(today,))
     follow_map={(r['med_id'],r['slot']):r['action'] for r in follow_rows}
+    st.html('<style>.st-key-dose_confirm button{background:#176f57!important;border-color:#176f57!important;min-height:58px!important;border-radius:16px!important}.st-key-dose_confirm button p,.st-key-dose_confirm button span{color:#fff!important;-webkit-text-fill-color:#fff!important}</style>')
     timeline_parts=[]
     reviewed=0
     for entry in slots:
@@ -1084,29 +1085,8 @@ def dashboard(person_id, elder):
             symbol,label='◷','예정'
         else:
             symbol,label='?','복용 여부 미확인'
-        timeline_parts.append(f'<div class="schedule-event"><time>{safe(entry["time"])}</time><span class="schedule-node">{symbol}</span><div><strong>{safe(entry["m"]["name"])}</strong><small>{safe(entry["m"]["dose"])}</small><span class="event-state">{label}</span></div></div>')
-    st.html('<style>.day-route{background:#fff;border:1px solid #d7e3de;border-radius:20px;padding:18px;margin:14px 0;color:#183f36}.day-route h3{font-size:20px;margin:0 0 8px;color:#183f36}.day-route .route-summary{font-size:14px;color:#405b50;margin:0 0 18px}.schedule-event{display:grid;grid-template-columns:52px 24px minmax(0,1fr);gap:10px;position:relative;padding:0 0 24px}.schedule-event:not(:last-child):before{content:"";position:absolute;left:73px;top:24px;bottom:0;width:2px;background:#cadbd2}.schedule-event time{font-size:15px;font-weight:750;color:#254b3f;padding-top:3px}.schedule-node{width:24px;height:24px;border:1px solid #809e8c;background:#f2f7f3;border-radius:50%;text-align:center;font-size:15px;color:#234b3e;z-index:1}.schedule-event strong{display:block;font-size:18px;color:#183f36;overflow-wrap:anywhere}.schedule-event small{display:block;font-size:14px;color:#455f53;margin-top:4px}.event-state{display:inline-block;font-size:13px;color:#2c5140;border:1px solid #c7d8ce;border-radius:6px;padding:3px 7px;margin-top:7px}.schedule-event:last-child{padding-bottom:0}</style><section class="day-route"><h3>'+safe(pname)+' · 오늘 시간표</h3><p class="route-summary">목표: 일정마다 안전하게 확인하기 · '+str(reviewed)+' / '+str(len(slots))+' 확인 완료</p>'+''.join(timeline_parts)+'</section>')
-    # No mascot: typography-led schedule card with a single clear information hierarchy.
-    st.html(f"""<style>
-    .schedule-card{{margin:14px 0 18px;background:#fff;border:1px solid #d7e3de;border-radius:22px;overflow:hidden;box-shadow:0 6px 20px #163f3508;color:#163f35;}}
-    .schedule-card *{{box-sizing:border-box;}}
-    .schedule-card .schedule-head{{display:flex;justify-content:space-between;align-items:center;padding:15px 18px;border-bottom:1px solid #edf1ee;gap:10px;}}
-    .schedule-card .schedule-person{{font-size:18px;font-weight:750;color:#244e42;}}
-    .schedule-card .schedule-status{{font-size:13px;font-weight:700;background:#eef4f0;color:#385c4b;border-radius:8px;padding:6px 9px;}}
-    .schedule-card .schedule-main{{display:flex;align-items:center;gap:18px;padding:24px 18px;}}
-    .schedule-card .schedule-time{{flex:none;font-size:32px;font-weight:850;letter-spacing:-1px;color:#176f57;}}
-    .schedule-card .schedule-drug{{border-left:1px solid #dce7e0;padding-left:18px;min-width:0;}}
-    .schedule-card .schedule-drug strong{{display:block;font-size:26px;line-height:1.35;color:#183d34;overflow-wrap:anywhere;}}
-    .schedule-card .schedule-drug span{{display:block;margin-top:8px;font-size:18px;line-height:1.5;color:#455e53;overflow-wrap:anywhere;}}
-    .schedule-card .schedule-foot{{padding:12px 18px;background:#f7faf8;border-top:1px solid #edf1ee;display:flex;justify-content:space-between;font-size:14px;color:#456153;}}
-    .schedule-card .schedule-foot b{{color:#234f3e;}}
-    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:16px!important;min-height:58px!important;}}
-    .st-key-dose_confirm button p,.st-key-dose_confirm button span{{color:#fff!important;-webkit-text-fill-color:#fff!important;}}
-    @media(max-width:380px){{.schedule-card .schedule-main{{padding:20px 14px;gap:12px;}}.schedule-card .schedule-time{{font-size:27px;}}.schedule-card .schedule-drug{{padding-left:12px;}}.schedule-card .schedule-drug strong{{font-size:23px;}}}}
-    </style><section class="schedule-card" aria-label="복용 일정">
-    <header class="schedule-head"><span class="schedule-person">{safe(pname)}</span><span class="schedule-status">{safe(status_label)}</span></header>
-    <div class="schedule-main"><div class="schedule-time">{safe(slot)}</div><div class="schedule-drug"><strong>{safe(m['name'])}</strong><span>{safe(m['dose'])}</span></div></div>
-    <footer class="schedule-foot"><span>오늘 기록</span><b>{completed_slots} / {len(slots)}회</b></footer></section>""")
+        timeline_parts.append(f'<div class="schedule-event {"is-taken" if entry["done"] else "is-pending"}"><time>{safe(entry["time"])}</time><span class="schedule-node">{symbol}</span><div><strong>{safe(entry["m"]["name"])}</strong><small>{safe(entry["m"]["dose"])}</small><span class="event-state">{label}</span></div></div>')
+    st.html('<style>.schedule-event.is-taken{background:#e8f5ec;border-radius:14px;padding-top:12px;padding-left:8px;padding-right:8px;margin-bottom:12px}.schedule-event.is-taken .schedule-node{background:#176f46;border-color:#176f46;color:#fff;font-weight:900}.schedule-event.is-taken .event-state{background:#176f46;border-color:#176f46;color:#fff;font-weight:750}.schedule-event.is-taken strong{color:#145b38}.schedule-event.is-pending .schedule-node{background:#fff;border-color:#c4cbc7;color:#59665f}.schedule-event.is-pending .event-state{background:#f5f6f5;color:#536259;border-color:#d6ded9}.day-route{background:#fff;border:1px solid #d7e3de;border-radius:20px;padding:18px;margin:14px 0;color:#183f36}.day-route h3{font-size:20px;margin:0 0 8px;color:#183f36}.day-route .route-summary{font-size:14px;color:#405b50;margin:0 0 18px}.schedule-event{display:grid;grid-template-columns:52px 24px minmax(0,1fr);gap:10px;position:relative;padding:0 0 24px}.schedule-event:not(:last-child):before{content:"";position:absolute;left:73px;top:24px;bottom:0;width:2px;background:#cadbd2}.schedule-event time{font-size:15px;font-weight:750;color:#254b3f;padding-top:3px}.schedule-node{width:24px;height:24px;border:1px solid #809e8c;background:#f2f7f3;border-radius:50%;text-align:center;font-size:15px;color:#234b3e;z-index:1}.schedule-event strong{display:block;font-size:18px;color:#183f36;overflow-wrap:anywhere}.schedule-event small{display:block;font-size:14px;color:#455f53;margin-top:4px}.event-state{display:inline-block;font-size:13px;color:#2c5140;border:1px solid #c7d8ce;border-radius:6px;padding:3px 7px;margin-top:7px}.schedule-event:last-child{padding-bottom:0}</style><section class="day-route"><h3>'+safe(pname)+' · 오늘 시간표</h3><p class="route-summary">목표: 일정마다 안전하게 확인하기 · '+str(reviewed)+' / '+str(len(slots))+' 확인 완료</p>'+''.join(timeline_parts)+'</section>')
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
