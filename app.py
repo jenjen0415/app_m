@@ -702,7 +702,7 @@ def save_followup(med_id,day,slot,action,guidance,source):
 
 
 def missed_flow(elder):
-    st.subheader('⏰ 못 먹은 약')
+    st.subheader('⏰ 못 먹었어요')
     options=unresolved_slots()
     if not options:
         st.success('확인할 약이 없습니다.');return
@@ -710,46 +710,52 @@ def missed_flow(elder):
     m=item['m'];day=item['day'];slot=item['slot'];key=f"{m['id']}_{day}_{slot}"
     st.markdown(f"**👤 {safe(m['person'])}　💊 {safe(m['name'])}**")
     st.write(f"{day} · {slot} · {m['dose']}")
-    st.info('두 회분을 한꺼번에 먹지 마세요. 약 봉투 지침이 없으면 약사에게 확인하세요.')
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_help (med_id TEXT PRIMARY KEY REFERENCES fm_meds(id), guidance TEXT NOT NULL, source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)")
     guides=rows('SELECT * FROM fm_help WHERE med_id=?',(m['id'],))
     h=guides[0] if guides else {'guidance':'','source':'','phone':''}
-    if h['guidance']:
-        st.write('📄 '+h['guidance']);st.caption('출처: '+h['source'])
-    if h['phone']:st.link_button('📞 약국 문의','tel:'+h['phone'],use_container_width=True)
-    with st.form('short_missed_'+key):
-        note=st.text_input('사유 (선택)',placeholder='예시) 외출해서 약을 못 먹음',max_chars=300)
-        save=st.form_submit_button('못 먹었어요 · 저장',use_container_width=True)
-    if save:
-        ok,msg=save_missed(m['id'],day,slot,'사정상 못 먹었어요',note)
-        if ok:
-            if not item['follow']:save_followup(m['id'],day,slot,'확인 대기','','')
-            st.success('저장했습니다. 아직 복용 완료는 아닙니다.')
-        else:st.warning(msg)
-    with st.expander('📋 약사 확인 후 처리'):
-        with st.form('short_result_'+key):
-            result=st.selectbox('결과',['안내에 따라 건너뜀','안내에 따라 복용함','가족·기록으로 확인 완료'])
-            detail=st.text_input('확인한 곳·내용',placeholder='예시) ○○약국에 문의, 이번 회차 건너뛰도록 안내')
-            submit=st.form_submit_button('결과 저장')
-        if submit:
-            action={'안내에 따라 건너뜀':'안내 확인 후 건너뜀','안내에 따라 복용함':'안내 확인 후 복용 보고','가족·기록으로 확인 완료':'기록 확인 완료'}[result]
-            ok,msg=save_followup(m['id'],day,slot,action,detail,detail[:100])
-            (st.success if ok else st.warning)('저장했습니다. 실제 복용 기록은 오늘 메뉴에서 남겨주세요.' if ok else msg)
-    with st.expander('⚙ 약별 지침·전화 설정'):
-        with st.form('short_help_'+key):
-            guide=st.text_area('확인된 누락 지침',value=h['guidance'])
-            source=st.text_input('출처',value=h['source'],placeholder='예시) 약 봉투 또는 ○○약국')
-            phone=st.text_input('약국 전화',value=h['phone'],placeholder='예시) 02-123-4567')
-            submit=st.form_submit_button('설정 저장')
-        if submit:
-            phone=re.sub(r'[\s()-]','',phone)
-            if (guide.strip() and not source.strip()) or (phone and not re.fullmatch(r'\+?[0-9]{7,15}',phone)):
-                st.warning('안내 출처 또는 전화번호를 확인하세요.')
-            else:
-                with database(True) as conn:
-                    execute(conn,"INSERT INTO fm_help VALUES (?,?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET guidance=excluded.guidance,source=excluded.source,phone=excluded.phone,updated=excluded.updated",(m['id'],guide.strip(),source.strip(),phone,now().isoformat()))
-                st.rerun()
+    st.markdown('### 1. 왜 못 먹었나요?')
+    reason=st.radio('사유',['깜빡했어요','약이 없었어요','몸이 불편했어요','먹었는지 모르겠어요','다른 이유'],key='why_'+key,label_visibility='collapsed')
+    note=st.text_input('어떤 이유인가요?',placeholder='예시) 식사 시간이 달라졌어요',key='why_note_'+key) if reason=='다른 이유' else ''
+    if reason=='몸이 불편했어요':
+        st.warning('이상 반응이 의심되면 의료진에게 문의하세요. 호흡곤란·의식 저하 등 심한 증상은 119에 연락하세요.')
+    if reason=='먹었는지 모르겠어요':
+        st.info('다시 먹기 전에 복용 기록과 가족에게 먼저 확인하세요.')
+        if st.button('📋 복용 기록 확인',key='check_history_'+key):history_dialog()
+    st.markdown('### 2. 놓쳤을 때의 지침을 아나요?')
+    known=st.radio('지침 확인',['아직 모르겠어요','알고 있어요'],key='know_'+key,horizontal=True,label_visibility='collapsed')
+    detail='';source='';result='확인 대기'
+    if known=='알고 있어요':
+        if h['guidance']:st.info('등록된 지침: '+h['guidance']+' · 출처: '+h['source'])
+        detail=st.text_input('확인한 지침',value=h['guidance'],placeholder='예시) 이 약을 놓쳤을 때 약사에게 안내받은 내용',key='guide_'+key)
+        source=st.text_input('어디서 확인했나요?',value=h['source'],placeholder='예시) 약 봉투 / ○○약국',key='guide_source_'+key)
+        choice=st.radio('지금 상태',['아직 처리 전','안내에 따라 건너뛰었어요','안내에 따라 복용했어요'],key='guide_result_'+key)
+        result={'아직 처리 전':'확인 대기','안내에 따라 건너뛰었어요':'안내 확인 후 건너뜀','안내에 따라 복용했어요':'안내 확인 후 복용 보고'}[choice]
+    else:
+        st.markdown('**약 봉투에서 ‘복용을 잊었을 때’를 확인하세요.**')
+        st.write('없거나 이해하기 어렵다면 약국·처방 의료진에게 문의하세요.')
+        phone=st.text_input('문의할 약국·병원 전화번호',value=h['phone'],placeholder='예시) 02-123-4567',key='ask_phone_'+key)
+        cleaned=re.sub(r'[\s()-]','',phone)
+        if cleaned and re.fullmatch(r'\+?[0-9]{7,15}',cleaned):
+            st.link_button('📞 전화해서 확인하기','tel:'+cleaned,use_container_width=True)
+        elif cleaned:st.warning('전화번호를 확인하세요.')
+        with st.expander('👪 혼자 확인하기 어렵다면 가족에게 요청'):
+            last=rows('SELECT taken_at FROM fm_logs WHERE med_id=? ORDER BY taken_at DESC LIMIT 1',(m['id'],))
+            message=f"복용 확인을 도와주세요.\n{m['person']} / {m['name']} / {m['dose']}\n놓친 일정: {day} {slot}\n이유: {reason} {note}\n마지막 복용 기록: {last[0]['taken_at'] if last else '없음 (미복용 확정 아님)'}\n약사에게 놓친 회차의 대처법을 확인해 주세요."
+            st.text_area('복사해서 보내세요 · 자동 전송 아님',value=message,height=180,key='ask_family_'+key)
+    st.info('두 회분을 한꺼번에 먹지 마세요. 앱은 지금 복용할지 대신 결정하지 않습니다.')
+    if st.button('확인 대기로 저장' if result=='확인 대기' else '확인 결과 저장',type='primary',use_container_width=True,key='save_branch_'+key):
+        if known=='알고 있어요' and (not detail.strip() or not source.strip()):
+            st.warning('확인한 지침과 출처를 입력하세요.');return
+        ok,msg=save_missed(m['id'],day,slot,reason,note)
+        if not ok:st.warning(msg);return
+        ok,msg=save_followup(m['id'],day,slot,result,detail,source)
+        if not ok:st.warning(msg);return
+        if known=='알고 있어요':
+            with database(True) as conn:
+                execute(conn,"INSERT INTO fm_help VALUES (?,?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET guidance=excluded.guidance,source=excluded.source,updated=excluded.updated",(m['id'],detail.strip(),source.strip(),h['phone'],now().isoformat()))
+        st.success('확인 대기로 남겼어요. 확인한 뒤 다시 열어 결과를 남겨주세요.' if result=='확인 대기' else '결과를 저장했어요. 실제 복용 기록은 오늘 메뉴에서 따로 남겨주세요.')
+
 
 
 def followup_history():
