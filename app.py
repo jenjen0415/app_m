@@ -131,12 +131,18 @@ def speech(text, automatic=False):
     # 실제 음성 재생은 휴대폰 브라우저의 음성 합성 기능을 사용합니다.
     encoded = json.dumps(text, ensure_ascii=False).replace('<', '\\u003c')
     components.html('''<button id="s" style="width:100%;min-height:64px;border:0;border-radius:12px;
-    background:#e2f4ec;color:#114c38;font-size:24px;font-weight:800">🔊 눌러서 음성 안내</button>
+    background:#e2f4ec;color:#114c38;font-size:20px;font-weight:800;white-space:nowrap">▶ 안내 듣기</button>
     <script>const text=TEXT;function speak(){if(!('speechSynthesis' in window)){
     document.getElementById('s').innerText='이 브라우저는 음성을 지원하지 않아요';return;}
     speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ko-KR';
     u.rate=0.85;speechSynthesis.speak(u);}document.getElementById('s').onclick=speak;
     AUTO</script>'''.replace('TEXT', encoded).replace('AUTO', 'speak();' if automatic else ''), height=76)
+
+
+@st.dialog('🔊 음성 안내', width='small')
+def voice_dialog(text):
+    st.write(text)
+    speech(text)
 
 
 def take(med_id, day, slot, duplicate_confirmed=False):
@@ -922,20 +928,22 @@ def dashboard(person_id, elder):
             execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
     unread_count=len(unread)
-    if unread_count:
-        st.markdown('<style>.st-key-rail_notifications button{border:3px solid #b42318!important;background:#fff0ec!important;color:#7a2118!important;animation:bellPulse 1.3s ease-in-out infinite;} @keyframes bellPulse{50%{box-shadow:0 0 0 5px #b4231820;}} @media(prefers-reduced-motion:reduce){.st-key-rail_notifications button{animation:none!important;}}</style>',unsafe_allow_html=True)
+    bell_border = '#b42318' if unread_count else '#abc7c0'
+    bell_bg = '#fff0ec' if unread_count else '#ffffff'
+    st.markdown(f'<style>.st-key-notification_only button{{border:3px solid {bell_border}!important;background:{bell_bg}!important;box-shadow:none!important;animation:none!important;}}</style>',unsafe_allow_html=True)
     if st.session_state.pop('open_notices_'+person_id,False):
         dose_notifications(person_id,pname,len(done),len(slots))
     with st.container(key='today_tools'):
-        if st.button(str(unread_count) if unread_count else '',icon=':material/notifications_active:' if unread_count else ':material/notifications:',help=f'안 읽은 알림 {unread_count}건',key='rail_notifications'):
-            with database(True) as conn:
-                execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
-            st.session_state['open_notices_'+person_id]=True
-            st.rerun(scope='fragment')
+        with st.container(key='notification_only'):
+            if st.button(str(unread_count) if unread_count else '',icon=':material/notifications_active:' if unread_count else ':material/notifications:',help=f'안 읽은 알림 {unread_count}건',key='rail_notifications'):
+                with database(True) as conn:
+                    execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
+                st.session_state['open_notices_'+person_id]=True
+                st.rerun(scope='fragment')
         if st.button('',icon=':material/alarm_off:',help='못 먹은 약',key='rail_missed'):
             st.session_state.page='놓친 약 확인';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
-            speech(f"{pname}, {slot}, {m['name']}, {m['dose']}",True)
+            voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}",True)
         if st.button('',icon=':material/history:',help='복용 기록',key='rail_history'):history_dialog()
     same_ingredient = False
     if norm(m['ingredient']):
