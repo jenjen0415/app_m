@@ -1062,6 +1062,30 @@ def dashboard(person_id, elder):
     completed_slots=sum(x['done'] for x in slots)
     status_icon='✓' if selected['done'] else '!' if expired_selected else '◷'
     status_label='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '복용 예정' if early else '복용 여부 확인'
+    # Vertical schedule, not a numeric dose chart: never implies dose quantity.
+    missed_rows=rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))
+    missed_keys={(r['med_id'],r['slot']) for r in missed_rows}
+    follow_rows=rows('SELECT med_id,slot,action FROM fm_followup WHERE day=?',(today,))
+    follow_map={(r['med_id'],r['slot']):r['action'] for r in follow_rows}
+    timeline_parts=[]
+    reviewed=0
+    for entry in slots:
+        identity=(entry['m']['id'],entry['time'])
+        action=follow_map.get(identity,'')
+        if entry['done']:
+            symbol,label='✓','복용 기록';reviewed+=1
+        elif action=='안내 확인 후 건너뜀':
+            symbol,label='↷','지침에 따라 건너뜀';reviewed+=1
+        elif action=='안내 확인 후 복용 보고':
+            symbol,label='?','복용 보고 · 실제 시각 미기록'
+        elif identity in missed_keys:
+            symbol,label='!','못 먹음 · 확인 중'
+        elif entry['scheduled']>current:
+            symbol,label='◷','예정'
+        else:
+            symbol,label='?','복용 여부 미확인'
+        timeline_parts.append(f'<div class="schedule-event"><time>{safe(entry["time"])}</time><span class="schedule-node">{symbol}</span><div><strong>{safe(entry["m"]["name"])}</strong><small>{safe(entry["m"]["dose"])}</small><span class="event-state">{label}</span></div></div>')
+    st.html('<style>.day-route{background:#fff;border:1px solid #d7e3de;border-radius:20px;padding:18px;margin:14px 0;color:#183f36}.day-route h3{font-size:20px;margin:0 0 8px;color:#183f36}.day-route .route-summary{font-size:14px;color:#405b50;margin:0 0 18px}.schedule-event{display:grid;grid-template-columns:52px 24px minmax(0,1fr);gap:10px;position:relative;padding:0 0 24px}.schedule-event:not(:last-child):before{content:"";position:absolute;left:73px;top:24px;bottom:0;width:2px;background:#cadbd2}.schedule-event time{font-size:15px;font-weight:750;color:#254b3f;padding-top:3px}.schedule-node{width:24px;height:24px;border:1px solid #809e8c;background:#f2f7f3;border-radius:50%;text-align:center;font-size:15px;color:#234b3e;z-index:1}.schedule-event strong{display:block;font-size:18px;color:#183f36;overflow-wrap:anywhere}.schedule-event small{display:block;font-size:14px;color:#455f53;margin-top:4px}.event-state{display:inline-block;font-size:13px;color:#2c5140;border:1px solid #c7d8ce;border-radius:6px;padding:3px 7px;margin-top:7px}.schedule-event:last-child{padding-bottom:0}</style><section class="day-route"><h3>'+safe(pname)+' · 오늘 시간표</h3><p class="route-summary">목표: 일정마다 안전하게 확인하기 · '+str(reviewed)+' / '+str(len(slots))+' 확인 완료</p>'+''.join(timeline_parts)+'</section>')
     # No mascot: typography-led schedule card with a single clear information hierarchy.
     st.html(f"""<style>
     .schedule-card{{margin:14px 0 18px;background:#fff;border:1px solid #d7e3de;border-radius:22px;overflow:hidden;box-shadow:0 6px 20px #163f3508;color:#163f35;}}
@@ -1144,6 +1168,12 @@ def dashboard(person_id, elder):
     if not selected['done'] and not early:
 
         if st.button('못 먹음 · 복용 여부 모름',icon=':material/pill_off:',key='dose_exception',use_container_width=True):
+            for k in list(st.session_state):
+                if k.startswith('mq_'):del st.session_state[k]
+            selected_m=dict(m);selected_m['person']=pname
+            st.session_state['mq_target']={'m':selected_m,'day':today,'slot':slot}
+            st.session_state['mq_step']='reason'
+            st.session_state['mq_back_stack']=[]
             st.session_state.page='놓친 약 확인'
             st.rerun()
     if elder:
