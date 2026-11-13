@@ -778,6 +778,9 @@ def touch_choice(label, options, key):
 def missed_flow(elder):
     # One question per render. Every answer immediately advances.
     def advance(step):
+        current=st.session_state.get('mq_step','select')
+        if current!=step and step!='done':
+            st.session_state.setdefault('mq_back_stack',[]).append(current)
         st.session_state['mq_step']=step
         st.rerun()
     def finish(result='확인 대기', detail='', source=''):
@@ -796,6 +799,10 @@ def missed_flow(elder):
                 if k.startswith('mq_'):del st.session_state[k]
             st.session_state.page='오늘 약 먹기';st.rerun()
         return
+    if step!='select' and st.session_state.get('mq_back_stack'):
+        if st.button('이전 단계',icon=':material/arrow_back:',key='mq_previous'):
+            st.session_state['mq_step']=st.session_state['mq_back_stack'].pop()
+            st.rerun()
     if step=='select':
         options=unresolved_slots()
         if not options:
@@ -924,9 +931,8 @@ def intake_table():
             output.append({'가족':m['person'],'약':m['name'],'예정':slot,'복용 시각':actual,'상태':status,'사유':reason})
     if output:
         output.sort(key=lambda r:(r['예정'],r['가족'],r['약']))
-        symbols={'복용':'🟢 ✓','못 먹음':'🔴 ×','건너뜀':'⚪ ↷','확인 필요':'🟠 ?','예정':'🔵 ◷','시각 미확인':'🟠 ?'}
-        for row in output:row['상태']=symbols.get(row['상태'],'🟠 ?')
-        st.caption('✓ 복용  ·  × 못 먹음  ·  ↷ 건너뜀  ·  ? 확인 필요  ·  ◷ 예정')
+        symbols={'복용':'✓ 복용','못 먹음':'× 미복용','건너뜀':'↷ 건너뜀','확인 필요':'? 미확인','예정':'◷ 예정','시각 미확인':'? 시각 미확인'}
+        for row in output:row['상태']=symbols.get(row['상태'],'? 미확인')
         details=st.checkbox('사유 보기',key='table_show_reason')
         view=output if details else [{k:v for k,v in row.items() if k!='사유'} for row in output]
         st.dataframe(view,hide_index=True,use_container_width=True)
