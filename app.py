@@ -1146,28 +1146,42 @@ def dashboard(person_id, elder):
         st.toast(st.session_state.pop('dose_toast'),icon=':material/check_circle:')
     st.markdown('**오늘 시간표**')
     import math
-    per_page=2 if elder else 3
+    per_page=9
     total_pages=max(1,math.ceil(len(slots)/per_page))
     page_key='schedule_page_'+person_id
     current_page=min(st.session_state.get(page_key,0),total_pages-1)
     visible_slots=slots[current_page*per_page:(current_page+1)*per_page]
-    for entry in visible_slots:
-        identity=(entry['m']['id'],entry['time'])
-        action=follow_map.get(identity,'')
-        label='✓ 복용 완료' if entry['done'] else '↷ 건너뜀' if action=='안내 확인 후 건너뜀' else '못 먹음 · 확인' if identity in missed_keys else '예정' if entry['scheduled']>current else '복용 여부 확인'
-        with st.container(border=True):
-            info,button=st.columns([3,2],gap='small')
-            info.markdown(f"**{entry['time']} · {safe(entry['m']['name'])}**")
-            info.caption(entry['m']['dose'])
-            if button.button(label,key='dose_open_'+entry['m']['id']+'_'+entry['time'],use_container_width=True,type='primary' if entry['done'] else 'secondary'):
-                dose_action_dialog(dict(entry['m']),pname,today,entry['time'],entry['done'])
+    st.markdown("""<style>
+    .st-key-dose_grid [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:7px!important;}
+    .st-key-dose_grid [data-testid="stColumn"]{flex:1 1 0!important;width:calc(33.333% - 5px)!important;min-width:0!important;}
+    .st-key-dose_grid [data-testid="stVerticalBlock"]{gap:7px!important;}
+    .st-key-dose_grid button{width:100%!important;height:112px!important;min-height:112px!important;padding:8px 5px!important;border-radius:15px!important;white-space:pre-line!important;}
+    .st-key-dose_grid button p{font-size:14px!important;line-height:1.45!important;white-space:pre-line!important;word-break:keep-all!important;overflow-wrap:anywhere!important;}
+    .st-key-dose_grid button[kind="primary"]{background:#e2f3e9!important;border:2px solid #238154!important;}
+    .st-key-dose_grid button[kind="primary"] p{color:#145c38!important;-webkit-text-fill-color:#145c38!important;}
+    @media(max-width:420px){.st-key-dose_grid button{height:104px!important;min-height:104px!important;}.st-key-dose_grid button p{font-size:13px!important;}}
+    </style>""",unsafe_allow_html=True)
+    with st.container(key='dose_grid'):
+        for row in range(3):
+            cells=st.columns(3,gap='small')
+            for col,cell in enumerate(cells):
+                index=row*3+col
+                if index>=len(visible_slots):continue
+                entry=visible_slots[index]
+                identity=(entry['m']['id'],entry['time'])
+                action=follow_map.get(identity,'')
+                label='✓ 완료' if entry['done'] else '↷ 건너뜀' if action=='안내 확인 후 건너뜀' else '! 확인 중' if identity in missed_keys else '◷ 예정' if entry['scheduled']>current else '? 미확인'
+                text=entry['time']+'\n'+entry['m']['name']+'\n'+label
+                if cell.button(text,key='dose_open_'+entry['m']['id']+'_'+entry['time'],help=entry['m']['dose'],use_container_width=True,type='primary' if entry['done'] else 'secondary'):
+                    dose_action_dialog(dict(entry['m']),pname,today,entry['time'],entry['done'])
     if total_pages>1:
         prev,center,nxt=st.columns([1,2,1])
-        if prev.button('이전',disabled=current_page==0,key='schedule_prev'):
+        if prev.button('이전 9개',disabled=current_page==0,key='schedule_prev'):
             st.session_state[page_key]=current_page-1;st.rerun(scope='fragment')
         center.caption(f'{current_page+1} / {total_pages}')
-        if nxt.button('다음',disabled=current_page==total_pages-1,key='schedule_next'):
+        if nxt.button('다음 9개',disabled=current_page==total_pages-1,key='schedule_next'):
             st.session_state[page_key]=current_page+1;st.rerun(scope='fragment')
+
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
