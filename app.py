@@ -968,8 +968,7 @@ def dashboard(person_id, elder):
     [data-testid="stAppViewContainer"] .st-key-today_tools .st-key-notification_only button *{{
       color:{'#b42318' if unread_count else '#163047'}!important;
       -webkit-text-fill-color:{'#b42318' if unread_count else '#163047'}!important;}}
-    .st-key-rail_missed button p{{font-size:13px!important;line-height:1.15!important;white-space:normal!important;}}
-    .st-key-rail_missed button{{flex-direction:column!important;gap:2px!important;min-height:66px!important;}}
+    .st-key-rail_missed button{{flex-direction:row!important;justify-content:center!important;align-items:center!important;gap:0!important;min-height:44px!important;height:44px!important;padding:4px!important;}}
     </style>""",unsafe_allow_html=True)
     if st.session_state.pop('open_notices_'+person_id,False):
         dose_notifications(person_id,pname,len(done),len(slots))
