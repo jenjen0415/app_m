@@ -1220,17 +1220,27 @@ def dashboard(person_id, elder):
     .st-key-medicine_tiles button{min-height:48px!important;border-radius:12px!important;padding:8px!important;}
     .st-key-medicine_tiles button p{font-size:15px!important;white-space:normal!important;overflow-wrap:anywhere!important;}
     </style>""",unsafe_allow_html=True)
+    palette=['#93b7df','#b7a3d9','#e5b36e','#83bdb9','#d99fb7','#b0bc78']
+    st.markdown("""<style>
+    .st-key-medicine_tiles [data-testid="stVerticalBlock"]{gap:6px!important;}
+    .st-key-medicine_tiles button{min-height:48px!important;padding:7px!important;}
+    .st-key-medicine_tiles button p{font-size:14px!important;line-height:1.35!important;}
+    </style>""",unsafe_allow_html=True)
     with st.container(key='medicine_tiles'):
         for offset in range(0,len(groups),2):
             cols=st.columns(2,gap='small')
             for col,entries in zip(cols,groups[offset:offset+2]):
                 med=entries[0]['m'];rank=priority(entries)
+                color=palette[sum(med['id'].encode('utf-8'))%len(palette)]
+                background='#fff0ec' if rank==0 else '#e7f4ec' if rank==2 else '#f3f6f8'
+                border='#d28070' if rank==0 else '#9ecab0' if rank==2 else '#d5dfe2'
+                prefix='! 복용 확인' if rank==0 else '✓ 기록 완료' if rank==2 else '◷ 예정'
                 with col:
                     if med['id'] in photos:
-                        st.image(base64.b64decode(photos[med['id']]),use_container_width=True)
+                        graphic=f'<img src="data:image/jpeg;base64,{photos[med["id"]]}" alt="{safe(med["name"])} 사진" style="width:66px;height:66px;object-fit:contain;border-radius:10px;" />'
                     else:
-                        st.html('<div style="aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border:1px solid #d5e2da;border-radius:18px;background:#f1f7f3;"><div style="width:36%;height:60%;border:3px solid #28644c;border-radius:999px;background:linear-gradient(to bottom,#ffffff 0%,#ffffff 48%,#28644c 48%,#28644c 52%,#a6d4b8 52%,#a6d4b8 100%);transform:rotate(35deg)" role="img" aria-label="알약 그림"></div></div>')
-                    prefix='! 확인 필요' if rank==0 else '✓ 기록 완료' if rank==2 else '◷ 예정'
+                        graphic=f'<div aria-label="약 구분용 그림" role="img" style="width:27px;height:58px;border:2px solid #405c60;border-radius:999px;background:linear-gradient(#fff 0%,#fff 48%,#405c60 48%,#405c60 52%,{color} 52%,{color} 100%);transform:rotate(35deg);"></div>'
+                    st.html(f'<div style="height:96px;background:{background};border:1px solid {border};border-radius:16px;display:flex;align-items:center;justify-content:center;position:relative;"><span style="position:absolute;top:7px;right:9px;font-size:14px;font-weight:800;color:#24473d;">{"!" if rank==0 else "✓" if rank==2 else "◷"}</span>{graphic}</div>')
                     if st.button(med['name']+' · '+prefix,key='tile_med_'+med['id'],use_container_width=True):
                         medicine_schedules_dialog(dict(med),pname,today,[(e['time'],e['done']) for e in entries])
 
