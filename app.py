@@ -203,10 +203,10 @@ def registration():
             st.caption('각자 처방받았거나 복용이 적합하다고 확인된 가족만 선택하세요. 용량·시각이 다르면 따로 등록하세요. 처방약을 가족끼리 나눠 먹지 마세요.')
             name = st.text_input('약 이름', max_chars=70)
             ingredient = st.text_input('주성분 (모르면 비워두세요)', max_chars=120, help='동일 성분 비교는 입력한 문자열이 같은 경우만 가능합니다. 복합제·다른 표기는 자동 판별하지 않습니다.')
-            dose = st.text_input('1회 복용량 / 주의사항', placeholder='처방대로 입력: 예) 1정, 식후', max_chars=160)
+            dose = st.text_input('1회 복용량 / 주의사항', placeholder='예시) 처방대로 입력: 예) 1정, 식후', max_chars=160)
             expiry = st.date_input('포장에 표시된 사용기한 / 유효기간', value=date.today() + timedelta(days=30), min_value=date(2000, 1, 1), max_value=date(2100, 12, 31))
             stock = st.checkbox('상비약 목록에도 표시')
-            times = st.text_input('매일 복용 시각 (쉼표로 구분)', placeholder='08:00, 13:00, 19:00', help='상비약만 보관할 때는 비워두세요. 필요시 복용 약의 임의 일정을 만들지 마세요.')
+            times = st.text_input('매일 복용 시각 (쉼표로 구분)', placeholder='예시) 08:00, 13:00, 19:00', help='상비약만 보관할 때는 비워두세요. 필요시 복용 약의 임의 일정을 만들지 마세요.')
             gap = st.number_input('최소 복용 간격 (시간, 처방에 있는 경우만)', min_value=0.0, max_value=168.0, value=0.0, step=0.5, help='0은 간격 검사를 하지 않음. 입력한 동일 주성분 약 기록에도 적용됩니다. 의학적으로 안전한 간격을 앱이 결정하지 않습니다.')
             submit = st.form_submit_button('약 등록', use_container_width=True)
         if submit:
@@ -265,7 +265,48 @@ def history_dialog():
     if not logs:
         st.info('이 날짜의 복용 기록이 없습니다.')
         return
-    st.dataframe([{'가족': r['person'], '약': r['name'], '예정': r['slot'], '실제': datetime.fromisoformat(r['taken_at']).strftime('%H:%M:%S')} for r in logs], hide_index=True, use_container_width=True)
+    people_names = sorted({r['person'] for r in logs})
+    person_filter = st.selectbox('가족', ['전체'] + people_names, key='history_person') if len(people_names)>1 else people_names[0]
+    shown = [r for r in logs if person_filter=='전체' or r['person']==person_filter]
+    shown = sorted(shown, key=lambda r:r['taken_at'])
+    st.caption('24시간 시계 · 점은 실제 복용 시각입니다. 예정 시각이나 미복용 여부를 뜻하지 않습니다.')
+    # Raster clock: independent of global CSS, no additional dependency.
+    from PIL import Image, ImageDraw
+    import math
+    image=Image.new('RGB',(640,640),'white')
+    draw=ImageDraw.Draw(image)
+    cx=cy=320; radius=240
+    draw.ellipse((80,80,560,560),outline='#687787',width=3)
+    for hour in range(24):
+        angle=hour*math.tau/24-math.pi/2
+        x=cx+radius*math.cos(angle); y=cy+radius*math.sin(angle)
+        inner=radius-(15 if hour%6==0 else 8)
+        draw.line((cx+inner*math.cos(angle),cy+inner*math.sin(angle),x,y),fill='#687787',width=3)
+        if hour%3==0:
+            tx=cx+275*math.cos(angle);ty=cy+275*math.sin(angle)
+            draw.text((tx,ty),f'{hour:02d}',fill='#163047',anchor='mm',font_size=25)
+    # Concentric tracks preserve multiple events at the same minute.
+    collisions={}
+    for r in shown:
+        taken=datetime.fromisoformat(r['taken_at']).astimezone(TZ)
+        minute=taken.hour*60+taken.minute
+        layer=collisions.get(minute,0);collisions[minute]=layer+1
+        distance=max(90,radius-28-18*layer)
+        angle=minute*math.tau/1440-math.pi/2
+        x=cx+distance*math.cos(angle);y=cy+distance*math.sin(angle)
+        draw.ellipse((x-9,y-9,x+9,y+9),fill='#176f70',outline='white',width=2)
+    draw.text((320,292),chosen.strftime('%m / %d'),fill='#163047',anchor='mm',font_size=34)
+    draw.text((320,340),str(len(shown)),fill='#163047',anchor='mm',font_size=48)
+    buffer=io.BytesIO();image.save(buffer,format='PNG')
+    st.image(buffer.getvalue(),use_container_width=True)
+    st.caption(f'가운데 숫자: 표시 중인 복용 기록 {len(shown)}건 · 위 00시 / 오른쪽 06시 / 아래 12시 / 왼쪽 18시')
+    st.subheader('시간순 복용 기록')
+    for r in shown:
+        actual=datetime.fromisoformat(r['taken_at']).astimezone(TZ).strftime('%H:%M')
+        with st.container(border=True):
+            st.markdown(f"**🕒 {actual} · {html.escape(r['name'])}**")
+            st.caption(f"{r['person']} · 예정 {r['slot']} · 복용 기록됨")
+    logs=shown
     selected = st.selectbox('잘못 체크한 기록', logs, format_func=lambda r: f"{r['person']} · {r['name']} · {r['slot']}")
     checked = st.checkbox('실제로 복용하지 않은 오기록만 취소합니다')
     st.caption('실제로 복용한 기록은 지우지 마세요. 취소하면 중복 방지 판단에서도 제외됩니다.')
@@ -277,7 +318,7 @@ def history_dialog():
 
 @st.dialog('QR로 가족 초대', width='small')
 def share_dialog():
-    url = st.text_input('배포된 앱 주소', value=setting('APP_URL'), placeholder='https://이름.streamlit.app')
+    url = st.text_input('배포된 앱 주소', value=setting('APP_URL'), placeholder='예시) https://이름.streamlit.app')
     from urllib.parse import urlparse
     parsed = urlparse(url.strip())
     if parsed.scheme == 'https' and parsed.netloc and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment:
@@ -318,9 +359,9 @@ def main():
     button{min-height:42px!important;}
     [data-testid="stDialog"] [role="dialog"]{max-height:90dvh;overflow-y:auto;}
     </style>''', unsafe_allow_html=True)
-    if not st.session_state.get('launch_seen_v6', False):
-        st.session_state.launch_seen_v6 = True
-        st.html('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 2.6s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} .launch-content{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}.launch-progress{width:44px;height:44px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;animation:launch-spin .85s linear infinite;box-sizing:border-box}.launch-status{color:#fff!important;-webkit-text-fill-color:#fff!important;font:500 15px sans-serif;letter-spacing:.2px;text-align:center}@keyframes launch-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.launch-progress{animation:none;border-color:#fff}}</style><div class="launch-screen" aria-label="앱 시작"><div class="launch-content"><img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjgiIGhlaWdodD0iNjgiIHZpZXdCb3g9IjAgMCA2OCA2OCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSLqsIDsobEg7JW9IOyngO2CtOydtCDroZzqs6AiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+ICA8cGF0aCBkPSJNMTggMzJMMzQgMThMNTAgMzIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4gPHBhdGggZD0iTTIzIDMxVjQ4QzIzIDUwIDI1IDUyIDI3IDUySDQxQzQzIDUyIDQ1IDUwIDQ1IDQ4VjMxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMy41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4gPHJlY3QgeD0iMjkiIHk9IjMwIiB3aWR0aD0iMTAiIGhlaWdodD0iMjAiIHJ4PSI1IiB0cmFuc2Zvcm09InJvdGF0ZSgzNSAzNCA0MCkiIGZpbGw9IiNmZmYiLz4gPHBhdGggZD0iTTMwIDM3TDM4IDQzIiBzdHJva2U9IiMxNzZmNzAiIHN0cm9rZS13aWR0aD0iMiIvPiA8L3N2Zz4=" alt="집과 알약 로고" style="width:96px;height:96px;display:block;max-width:none;object-fit:contain" /><div class="launch-progress" role="status" aria-label="시작 화면 표시 중"></div><div class="launch-status">앱을 시작하고 있어요</div></div></div>')
+    if not st.session_state.get('launch_seen_v8', False):
+        st.session_state.launch_seen_v8 = True
+        st.html('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 4s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} .launch-content{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}.launch-progress{width:44px;height:44px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;animation:launch-spin .85s linear infinite;box-sizing:border-box}.launch-status{color:#fff!important;-webkit-text-fill-color:#fff!important;font:500 15px sans-serif;letter-spacing:.2px;text-align:center}@keyframes launch-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.launch-progress{animation:none;border-color:#fff}}</style><div class="launch-screen" aria-label="앱 시작"><div class="launch-content"><img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjgiIGhlaWdodD0iNjgiIHZpZXdCb3g9IjAgMCA2OCA2OCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSLqsIDsobEg7JW9IOyngO2CtOydtCDroZzqs6AiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+ICA8cGF0aCBkPSJNMTggMzJMMzQgMThMNTAgMzIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4gPHBhdGggZD0iTTIzIDMxVjQ4QzIzIDUwIDI1IDUyIDI3IDUySDQxQzQzIDUyIDQ1IDUwIDQ1IDQ4VjMxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMy41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4gPHJlY3QgeD0iMjkiIHk9IjMwIiB3aWR0aD0iMTAiIGhlaWdodD0iMjAiIHJ4PSI1IiB0cmFuc2Zvcm09InJvdGF0ZSgzNSAzNCA0MCkiIGZpbGw9IiNmZmYiLz4gPHBhdGggZD0iTTMwIDM3TDM4IDQzIiBzdHJva2U9IiMxNzZmNzAiIHN0cm9rZS13aWR0aD0iMiIvPiA8L3N2Zz4=" alt="집과 알약 로고" style="width:96px;height:96px;display:block;max-width:none;object-fit:contain" /><div class="launch-progress" role="status" aria-label="시작 화면 표시 중"></div><div class="launch-status">앱을 시작하고 있어요</div></div></div>')
     elder = st.toggle('👵 큰 글씨 · 음성 안내', key='elder_mode')
     if elder:
         st.markdown('''<style>
@@ -413,6 +454,16 @@ def missed_history():
 
 
 def home_screen(elder):
+    st.markdown("""<style>
+    input::placeholder,textarea::placeholder{color:#737d89!important;-webkit-text-fill-color:#737d89!important;opacity:1!important;}
+    .dose-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;}
+    .dose-row strong{font-size:23px;color:#163047;}
+    .top-notice{background:#e2f2ed;border:2px solid #176f70;border-radius:16px;padding:14px;margin:0 0 14px;color:#163047;font-size:19px;font-weight:700;}
+    .st-key-today_tools{position:fixed;right:max(6px,calc((100vw - 580px)/2));top:35%;z-index:100;width:46px!important;background:#fff;border:1px solid #abc7c0;border-radius:18px;padding:4px;box-shadow:0 3px 12px #16304720;}
+    .st-key-today_tools button{min-width:36px!important;padding:4px!important;}
+    .block-container{padding-right:62px!important;padding-bottom:110px!important;}
+    </style>""",unsafe_allow_html=True)
+
     st.markdown("""<style>
     :root{--ink:#163047;--accent:#176f70;}
     [data-testid="stAlert"]{background:#fff3d8!important;color:#163047!important;
@@ -571,7 +622,6 @@ def home_screen(elder):
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
     with st.container(key='bottom_nav'):
-        st.html('<div class="bottom-brand" style="display:flex;align-items:center;justify-content:center;width:100%;padding:0 0 6px;line-height:0;"><img src="data:image/svg+xml;base64,PHN2ZyBzdHlsZT0id2lkdGg6NDhweCFpbXBvcnRhbnQ7aGVpZ2h0OjQ4cHghaW1wb3J0YW50O292ZXJmbG93OnZpc2libGUhaW1wb3J0YW50O2ZsZXgtc2hyaW5rOjA7IiB3aWR0aD0iNjgiIGhlaWdodD0iNjgiIHZpZXdCb3g9IjAgMCA2OCA2OCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSLqsIDsobEg7JW9IOyngO2CtOydtCDroZzqs6AiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+IDxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSI2OCIgaGVpZ2h0PSI2OCIgcng9IjE2IiBmaWxsPSIjMTc2ZjcwIi8+IDxwYXRoIGQ9Ik0xOCAzMkwzNCAxOEw1MCAzMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPiA8cGF0aCBkPSJNMjMgMzFWNDhDMjMgNTAgMjUgNTIgMjcgNTJINDFDNDMgNTIgNDUgNTAgNDUgNDhWMzEiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPiA8cmVjdCB4PSIyOSIgeT0iMzAiIHdpZHRoPSIxMCIgaGVpZ2h0PSIyMCIgcng9IjUiIHRyYW5zZm9ybT0icm90YXRlKDM1IDM0IDQwKSIgZmlsbD0iI2ZmZiIvPiA8cGF0aCBkPSJNMzAgMzdMMzggNDMiIHN0cm9rZT0iIzE3NmY3MCIgc3Ryb2tlLXdpZHRoPSIyIi8+IDwvc3ZnPg==" alt="집과 알약 로고" style="width:48px;height:48px;display:block;max-width:none;object-fit:contain" /></div>')
         cols=st.columns(4)
         for col,icon,label,target in zip(cols,[':material/medication:',':material/medical_services:',':material/history:',':material/group:'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
             if col.button(label if elder else '',icon=icon,help=label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
@@ -652,122 +702,54 @@ def save_followup(med_id,day,slot,action,guidance,source):
 
 
 def missed_flow(elder):
-    st.subheader('못 먹었어요')
-    if st.session_state.pop('simple_saved',False):
-        st.success('확인 결과를 저장했습니다.')
+    st.subheader('⏰ 못 먹은 약')
     options=unresolved_slots()
     if not options:
-        st.success('확인할 일정이 없습니다.');return
-    # A single schedule needs no selector.
-    if len(options)==1:
-        item=options[0]
-    else:
-        item=st.selectbox('어떤 약인가요?',options,format_func=lambda x:f"{x['day']} {x['slot']} · {x['m']['person']} · {x['m']['name']}")
+        st.success('확인할 약이 없습니다.');return
+    item=options[0] if len(options)==1 else st.selectbox('약 선택',options,format_func=lambda x:f"{x['day']} {x['slot']} · {x['m']['person']} · {x['m']['name']}")
     m=item['m'];day=item['day'];slot=item['slot'];key=f"{m['id']}_{day}_{slot}"
-    st.markdown(f'<div class="hero"><span class="badge">{safe(day)} · {safe(slot)}</span><div class="name">{safe(m["name"])}</div><div class="small">{safe(m["person"])} · {safe(m["dose"])}</div></div>',unsafe_allow_html=True)
-    # Per-medicine verified instructions and contact persist in the same app database.
+    st.markdown(f"**👤 {safe(m['person'])}　💊 {safe(m['name'])}**")
+    st.write(f"{day} · {slot} · {m['dose']}")
+    st.info('두 회분을 한꺼번에 먹지 마세요. 약 봉투 지침이 없으면 약사에게 확인하세요.')
     with database(True) as conn:
-        execute(conn, """CREATE TABLE IF NOT EXISTS fm_help (
-            med_id TEXT PRIMARY KEY REFERENCES fm_meds(id), guidance TEXT NOT NULL,
-            source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)""")
-    saved=rows('SELECT * FROM fm_help WHERE med_id=?',(m['id'],))
-    helpinfo=saved[0] if saved else {'guidance':'','source':'','phone':'','updated':''}
-    elapsed=max(0,int((now()-datetime.combine(date.fromisoformat(day),datetime.strptime(slot,'%H:%M').time(),TZ)).total_seconds()/60))
-    st.caption(f'예정 시각에서 {elapsed//60}시간 {elapsed%60}분 지났습니다. 시간 경과만으로 복용 여부를 결정할 수 없습니다.')
-    st.subheader('지금 할 일')
-    st.caption('① 약 봉투의 누락 시 지침 확인 → ② 없으면 약국 문의 → ③ 확인한 결과를 아래에 기록')
-
-    if helpinfo['guidance']:
-        st.info('등록된 약별 안내 · '+helpinfo['guidance'])
-        st.caption('출처: '+helpinfo['source']+' · 등록: '+helpinfo['updated'][:10]+' · 현재 처방과 같은지 확인하세요.')
-    else:
-        st.warning('등록된 복용 지침이 없습니다. 추가 복용 전에 약국에 문의하세요.')
-    phone=helpinfo['phone']
-    if phone:
-        st.link_button('📞 등록한 약국에 전화', 'tel:'+phone,use_container_width=True)
-    else:
-        st.caption('아래 ‘약별 안내 · 연락처 설정’에서 약국 전화번호를 등록할 수 있어요.')
-    last=rows('SELECT taken_at FROM fm_logs WHERE med_id=? ORDER BY taken_at DESC LIMIT 1',(m['id'],))
-    recent=last[0]['taken_at'] if last else '기록 없음 (실제 미복용을 의미하지 않음)'
-    message=(f"복용 확인을 도와주세요.\n가족: {m['person']}\n약: {m['name']} / {m['dose']}"
-             f"\n놓친 일정: {day} {slot}\n마지막 복용 기록: {recent}"
-             "\n놓친 회차를 어떻게 처리할지 약사 또는 처방 의료진에게 확인이 필요합니다.")
-    with st.expander('👪 가족에게 도움 요청'):
-        st.caption('아래 내용을 복사해 가족에게 보내세요. 자동 전송되지 않습니다.')
-        st.text_area('전달할 내용',value=message,height=180,key='help_message_'+key)
-        st.download_button('요청 내용 내려받기',message,file_name='복용확인요청.txt',mime='text/plain',key='help_download_'+key)
-    with st.expander('⚙ 약별 안내 · 연락처 설정'):
-        st.caption('약 봉투·설명서 또는 약사·의료진에게 확인한 지침만 입력하세요. 앱이 검증한 처방은 아닙니다.')
-        with st.form('help_settings_'+key):
-            guide=st.text_area('이 약을 놓쳤을 때의 안내',value=helpinfo['guidance'],max_chars=1600)
-            source=st.text_input('안내 출처 (약 봉투 / 약국 등)',value=helpinfo['source'],max_chars=200)
-            number=st.text_input('약국 전화번호',value=phone,max_chars=30)
-            submit=st.form_submit_button('안내 · 연락처 저장',use_container_width=True)
+        execute(conn,"CREATE TABLE IF NOT EXISTS fm_help (med_id TEXT PRIMARY KEY REFERENCES fm_meds(id), guidance TEXT NOT NULL, source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)")
+    guides=rows('SELECT * FROM fm_help WHERE med_id=?',(m['id'],))
+    h=guides[0] if guides else {'guidance':'','source':'','phone':''}
+    if h['guidance']:
+        st.write('📄 '+h['guidance']);st.caption('출처: '+h['source'])
+    if h['phone']:st.link_button('📞 약국 문의','tel:'+h['phone'],use_container_width=True)
+    with st.form('short_missed_'+key):
+        note=st.text_input('사유 (선택)',placeholder='예시) 외출해서 약을 못 먹음',max_chars=300)
+        save=st.form_submit_button('못 먹었어요 · 저장',use_container_width=True)
+    if save:
+        ok,msg=save_missed(m['id'],day,slot,'사정상 못 먹었어요',note)
+        if ok:
+            if not item['follow']:save_followup(m['id'],day,slot,'확인 대기','','')
+            st.success('저장했습니다. 아직 복용 완료는 아닙니다.')
+        else:st.warning(msg)
+    with st.expander('📋 약사 확인 후 처리'):
+        with st.form('short_result_'+key):
+            result=st.selectbox('결과',['안내에 따라 건너뜀','안내에 따라 복용함','가족·기록으로 확인 완료'])
+            detail=st.text_input('확인한 곳·내용',placeholder='예시) ○○약국에 문의, 이번 회차 건너뛰도록 안내')
+            submit=st.form_submit_button('결과 저장')
         if submit:
-            cleaned=re.sub(r'[\s()-]','',number)
-            if guide.strip() and not source.strip():
-                st.warning('복용 지침의 출처를 입력하세요.')
-            elif cleaned and not re.fullmatch(r'\+?[0-9]{7,15}',cleaned):
-                st.warning('전화번호를 확인하세요.')
+            action={'안내에 따라 건너뜀':'안내 확인 후 건너뜀','안내에 따라 복용함':'안내 확인 후 복용 보고','가족·기록으로 확인 완료':'기록 확인 완료'}[result]
+            ok,msg=save_followup(m['id'],day,slot,action,detail,detail[:100])
+            (st.success if ok else st.warning)('저장했습니다. 실제 복용 기록은 오늘 메뉴에서 남겨주세요.' if ok else msg)
+    with st.expander('⚙ 약별 지침·전화 설정'):
+        with st.form('short_help_'+key):
+            guide=st.text_area('확인된 누락 지침',value=h['guidance'])
+            source=st.text_input('출처',value=h['source'],placeholder='예시) 약 봉투 또는 ○○약국')
+            phone=st.text_input('약국 전화',value=h['phone'],placeholder='예시) 02-123-4567')
+            submit=st.form_submit_button('설정 저장')
+        if submit:
+            phone=re.sub(r'[\s()-]','',phone)
+            if (guide.strip() and not source.strip()) or (phone and not re.fullmatch(r'\+?[0-9]{7,15}',phone)):
+                st.warning('안내 출처 또는 전화번호를 확인하세요.')
             else:
                 with database(True) as conn:
-                    execute(conn,"""INSERT INTO fm_help (med_id,guidance,source,phone,updated)
-                        VALUES (?,?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET
-                        guidance=excluded.guidance,source=excluded.source,phone=excluded.phone,updated=excluded.updated""",
-                        (m['id'],guide.strip(),source.strip(),cleaned,now().isoformat()))
+                    execute(conn,"INSERT INTO fm_help VALUES (?,?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET guidance=excluded.guidance,source=excluded.source,phone=excluded.phone,updated=excluded.updated",(m['id'],guide.strip(),source.strip(),phone,now().isoformat()))
                 st.rerun()
-    st.markdown('<div class="safety-note">두 회분을 한꺼번에 먹거나 임의로 용량을 늘리지 마세요. 먹었는지 불확실하면 먼저 가족·약사에게 확인하세요. 몸 상태가 나쁘거나 과량 복용이 의심되면 즉시 의료진에게 상담하세요.</div>',unsafe_allow_html=True)
-
-    existing_reason=rows('SELECT reason,note FROM fm_missed WHERE med_id=? AND day=? AND slot=?',(m['id'],day,slot))
-    st.subheader('못 먹은 사유')
-    with st.form('missed_reason_'+key):
-        reason=st.radio('사유 선택',['깜빡했어요','사정상 못 먹었어요'],index=0 if not existing_reason or existing_reason[0]['reason']=='깜빡했어요' else 1,horizontal=True)
-        note=st.text_input('자세한 사유 (선택)',value=existing_reason[0]['note'] if existing_reason else '',placeholder='예: 외출하면서 약을 두고 왔어요',max_chars=300)
-        save_reason=st.form_submit_button('사유 저장' if not existing_reason else '사유 수정',use_container_width=True)
-    if save_reason:
-        with database(True) as conn:
-            taken=execute(conn,'SELECT id FROM fm_logs WHERE med_id=? AND day=? AND slot=?',(m['id'],day,slot)).fetchone()
-            if not taken:
-                execute(conn,"""INSERT INTO fm_missed (id,med_id,day,slot,reason,note,recorded_at)
-                    VALUES (?,?,?,?,?,?,?) ON CONFLICT(med_id,day,slot) DO UPDATE SET
-                    reason=excluded.reason,note=excluded.note,recorded_at=excluded.recorded_at""",
-                    (str(uuid.uuid4()),m['id'],day,slot,reason,note.strip(),now().isoformat()))
-        if taken:
-            st.warning('이미 복용 기록이 있습니다. 기록을 먼저 확인하세요.')
-        else:
-            if not item['follow']:
-                save_followup(m['id'],day,slot,'확인 대기','','')
-            st.success('사유를 저장했습니다. 복용 완료가 아니라 확인 대기 기록입니다.')
-    st.caption('사유는 기록 → 못 먹은 기록에서 확인할 수 있어요.')
-    times=sorted(json.loads(m['times']))
-    current=now()
-    future=[datetime.combine(current.date()+timedelta(days=d),datetime.strptime(t,'%H:%M').time(),TZ) for d in (0,1) for t in times]
-    nxt=min((t for t in future if t>current),default=None)
-    if nxt:st.caption('다음 등록 시각: '+nxt.strftime('%m월 %d일 %H:%M')+' (복용 지시가 아닙니다)')
-    st.subheader('확인한 뒤 처리하기')
-    st.caption('복용 지침을 아직 확인하지 못했다면 위의 확인 대기 기록만 남기세요. 다음 등록 일정은 그대로 유지되며, 놓친 용량을 합산하지 않습니다.')
-    with st.expander('건너뛰기 · 복용 기록으로 이동', expanded=True):
-        st.caption('이미 먹었다면 추가로 먹지 마세요. 오늘 복용 화면에서 기록을 확인할 수 있습니다.')
-        if day != now().date().isoformat():
-            st.caption('이전 날짜 회차는 오늘 복용으로 옮겨 기록하지 마세요. 아래 확인 결과에 실제 복용 날짜·시각을 남기세요.')
-        if st.button('💊 지침 확인 후 오늘 복용 기록으로 이동',key='to_today_'+key,use_container_width=True,disabled=day != now().date().isoformat()):
-            st.session_state.page='오늘 약 먹기';st.rerun()
-        with st.form('follow_form_'+key):
-            result=st.selectbox('확인한 결과',['안내에 따라 건너뜀','안내에 따라 복용함','가족·기록으로 확인 완료'])
-            detail=st.text_input('어디서 무엇을 확인했나요?',placeholder='확인한 곳과 안내 내용을 함께 적어 주세요.',max_chars=800)
-            submitted=st.form_submit_button('확인 결과 저장',use_container_width=True)
-        if submitted:
-            if not detail.strip():
-                st.warning('확인한 곳과 내용을 한 줄로 적어 주세요.')
-            else:
-                action={'안내에 따라 건너뜀':'안내 확인 후 건너뜀','안내에 따라 복용함':'안내 확인 후 복용 보고','가족·기록으로 확인 완료':'기록 확인 완료'}[result]
-                ok,msg=save_followup(m['id'],day,slot,action,detail,'사용자 입력: '+detail[:100])
-                if ok:
-                    st.session_state.simple_saved=True
-                    st.rerun()
-                else:st.warning(msg)
-        st.caption('후속 조치는 사용자 확인 내용이며 실제 복용 기록은 자동 생성되지 않습니다.')
-    if elder:speech('못 먹었다면 두 회분을 한꺼번에 먹지 마세요. 약 봉투 안내나 약사에게 확인하세요.')
 
 
 def followup_history():
@@ -814,7 +796,8 @@ def dashboard(person_id, elder):
     due = [s for s in pending if s['scheduled'] <= current and s['m']['expiry'] >= today]
     expired = sum(m['expiry'] < today for m in meds)
     soon = sum(0 <= (date.fromisoformat(m['expiry']) - current.date()).days <= 30 for m in meds)
-    st.caption(f"오늘 {len(done)}/{len(slots)}회 기록  ·  기한 경과 {expired}개 / 30일 이내 {soon}개")
+    st.markdown(f'<div class="top-notice" role="status">🔔 복용 확인 {len(due)}건　·　오늘 기록 {len(done)}/{len(slots)}회</div>',unsafe_allow_html=True)
+    if expired:st.warning(f'유효기간 지난 약 {expired}개 · 복용 금지')
     flash = st.session_state.pop('flash', None)
     if flash:
         (st.success if flash[0] else st.warning)(flash[1])
@@ -836,13 +819,17 @@ def dashboard(person_id, elder):
     selected=choice_map[selected_key]
     m, slot = selected['m'], selected['time']
     person_name=rows('SELECT name FROM fm_people WHERE id=?',(person_id,))
-    st.info('👤 '+(person_name[0]['name'] if person_name else '선택 가족')+'의 복용 기록입니다. 다른 가족의 복용 여부와 별도로 저장됩니다.')
-    expired_selected = m['expiry'] < today
-    early = selected['scheduled'] > current
-    state = '복용 완료' if selected['done'] else '기한 경과 · 복용 금지' if expired_selected else '예정 시각 전' if early else '복용 확인이 필요해요'
-    st.markdown(f'''<div class="hero"><span class="badge">{safe(slot)} · {state}</span>
-    <div class="name">{safe(m['name'])}</div><div class="small">{safe(m['dose'])}<br>
-    유효기간 {safe(m['expiry'])}</div></div>''', unsafe_allow_html=True)
+    expired_selected=m['expiry']<today
+    early=selected['scheduled']>current
+    state='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '예정' if early else '확인 필요'
+    pname=person_name[0]['name'] if person_name else '가족'
+    st.markdown(f'<div class="hero"><div class="dose-row"><strong>👤 {safe(pname)}</strong><strong>💊 {safe(m["name"])}</strong></div><div class="small">🕒 {safe(slot)} · {safe(m["dose"])} · {state}</div></div>',unsafe_allow_html=True)
+    with st.container(key='today_tools'):
+        if st.button('',icon=':material/alarm_off:',help='못 먹은 약',key='rail_missed'):
+            st.session_state.page='놓친 약 확인';st.rerun()
+        if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
+            speech(f"{pname}, {slot}, {m['name']}, {m['dose']}",True)
+        if st.button('',icon=':material/history:',help='복용 기록',key='rail_history'):history_dialog()
     same_ingredient = False
     if norm(m['ingredient']):
         hist = rows('''SELECT m.id,m.ingredient FROM fm_logs l JOIN fm_meds m ON m.id=l.med_id
@@ -864,7 +851,7 @@ def dashboard(person_id, elder):
         st.session_state.flash = result
         st.rerun(scope='fragment')
     if not selected['done'] and not early:
-        st.caption('기록이 없다고 추가 복용하지 마세요. 놓쳤거나 확실하지 않다면 아래에서 확인하세요.')
+
         if st.button('못 먹었거나, 먹었는지 모르겠어요',use_container_width=True):
             st.session_state.page='놓친 약 확인'
             st.rerun()
@@ -876,8 +863,7 @@ def dashboard(person_id, elder):
             message = f'복용 시간이 된 일정이 {len(due)}개 있습니다. 화면에서 확인하세요. ' + message
             st.session_state.announced = signature
         speech(message, auto)
-    elif due:
-        st.caption(f'🔔 현재 확인할 복용 일정 {len(due)}개 · 완료되지 않았다고 추가 복용하지 마세요.')
+
 
 
 if __name__ == '__main__':
