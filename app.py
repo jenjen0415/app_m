@@ -1456,6 +1456,54 @@ def mobile_board(pid, elder):
     if tools[2].button('📚 기록',use_container_width=True): mobile_history()
 
 
+
+def go_page(page):
+    st.session_state.mobile_nav_page=page
+
+
+def save_preference(widget, target):
+    st.session_state[target]=st.session_state[widget]
+
+
+def settings_page():
+    st.toggle('👵 큰 글씨', value=st.session_state.get('mobile_elder',False), key='settings_elder_widget', on_change=save_preference, args=('settings_elder_widget','mobile_elder'))
+    st.toggle('🔊 화면이 열려 있을 때 음성 알림', value=st.session_state.get('mobile_auto_voice',False), key='settings_voice_widget', on_change=save_preference, args=('settings_voice_widget','mobile_auto_voice'))
+    st.caption('음성은 브라우저 정책에 따라 재생되지 않을 수 있습니다. 홈 화면의 🔊 버튼으로 먼저 활성화하세요. 화면 잠금·앱 종료 상태에서는 알림이 보장되지 않습니다. 중요한 약은 휴대폰 알람도 함께 설정하세요.')
+    url = st.text_input('배포된 앱 주소', value=setting('APP_URL'), placeholder='https://your-app.streamlit.app')
+    if url:
+        if not re.fullmatch(r'https://[^\s]+', url): st.warning('https://로 시작하는 실제 앱 주소를 입력하세요.')
+        else:
+            buf=io.BytesIO(); qrcode.make(url).save(buf, format='PNG')
+            st.image(buf.getvalue(), width=200)
+            st.caption('QR은 접속 주소입니다. 가족별 인증키가 아닙니다.')
+    st.warning('이 앱은 링크를 아는 사람이 가족 정보를 조회·수정할 수 있습니다. 민감한 실명·건강정보 대신 별칭으로 시험하세요.')
+    st.caption('영구 DB 연결됨' if PG else '데모 저장소: 서버 재시작·재배포 시 데이터 유실 가능. 영구 보관은 DATABASE_URL 설정 필요.')
+
+def cabinet_list():
+    meds = rows('''SELECT m.*, p.name AS person FROM fm_meds m JOIN fm_people p
+        ON p.id=m.person_id WHERE m.active=1 ORDER BY m.expiry''')
+    stock_only = st.toggle('상비약만 보기', value=True)
+    available = [m for m in meds if m['stock'] or not stock_only]
+    if not available:
+        st.info('등록된 약이 없습니다.')
+        return
+    selected = st.selectbox('약 목록 (유효기간 순)', available, format_func=lambda m: f"{m['person']} · {m['name']} · {m['expiry']}")
+    remaining = (date.fromisoformat(selected['expiry']) - now().date()).days
+    st.write(f"**{selected['name']}** · {selected['dose']}")
+    st.write(f"성분: {selected['ingredient'] or '미입력'} / 유효기간: {selected['expiry']}")
+    if remaining < 0:
+        st.error('유효기간 경과 · 복용 금지, 약사에게 폐기 방법 문의')
+    elif remaining <= 30:
+        st.warning(f'유효기간까지 {remaining}일 · 보관/개봉 후 기한도 확인하세요.')
+    else:
+        st.success(f'유효기간까지 {remaining}일')
+    st.caption('보관 수량·재고 차감은 지원하지 않습니다. 개봉·조제 후 사용기한은 별도로 확인하세요.')
+    confirm = st.checkbox('이 약의 일정을 중지하고 목록에서 숨깁니다 (기록은 유지)')
+    if st.button('선택 약 보관 중지', disabled=not confirm, use_container_width=True):
+        with database(True) as conn:
+            execute(conn, 'UPDATE fm_meds SET active=0 WHERE id=?', (selected['id'],))
+        st.rerun()
+
 def main():
     try:
         initialize(DB_URL)
@@ -1488,30 +1536,57 @@ def main():
     [data-testid="stToastContainer"]{top:12px!important;bottom:auto!important;left:50%!important;right:auto!important;transform:translateX(-50%);width:min(92vw,440px)}
     [data-testid="stCaptionContainer"] p{font-size:12px}
     @media(max-height:700px){.summary{padding:8px 14px}.summary b{font-size:29px}.dosecell{gap:2px}.block-container{padding-top:6px!important}}
+
+    .block-container{padding-top:12px!important;padding-bottom:calc(100px + env(safe-area-inset-bottom,0px))!important}
+    .st-key-mobile_nav{position:fixed!important;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,480px);z-index:900;background:#fff;border-top:1px solid #d5e4e1;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));box-sizing:border-box;box-shadow:0 -4px 16px #153c3b0a}
+    .st-key-mobile_nav [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important}
+    .st-key-mobile_nav [data-testid="stColumn"]{flex:1 1 0!important;min-width:0!important;width:0!important}
+    .st-key-mobile_nav button{display:flex!important;flex-direction:column!important;justify-content:center!important;align-items:center!important;gap:4px!important;min-height:58px!important;border:0!important;border-radius:14px!important}
+    .st-key-mobile_nav button p{font-size:12px!important;line-height:1.3!important;margin:0!important}
+    .st-key-mobile_nav button[kind="secondary"]{background:#fff!important;color:#58716d!important}
+    .st-key-mobile_nav button[kind="primary"]{background:#e0f2ed!important;color:#126362!important}
+    [data-testid="stSelectbox"]{position:relative;margin:0 0 6px!important}
+    [data-testid="stSelectbox"] [data-baseweb="select"]>div{min-height:46px}
+    *{box-sizing:border-box}
     </style>''',unsafe_allow_html=True)
     if elder:
         st.markdown('''<style>button{min-height:52px!important}button p{font-size:18px!important}.dosecell strong{font-size:29px}.dosecell small,.medline{font-size:18px}.summary span{font-size:17px}[data-testid="stCaptionContainer"] p{font-size:15px}[data-testid="stDialog"] p,[data-testid="stDialog"] label{font-size:19px!important}</style>''',unsafe_allow_html=True)
     message=st.session_state.pop('mobile_flash',None)
     if message: st.toast(message,duration='short')
-    st.markdown('<div class="brand">💊 온약 <small>가족 약 지킴이</small></div>',unsafe_allow_html=True)
+    # Render navigation before page content so active state is settled on this run.
+    if 'mobile_nav_page' not in st.session_state:
+        st.session_state.mobile_nav_page='today'
+    with st.container(key='mobile_nav'):
+        nav=st.columns(3,gap='small')
+        for col, page, label, icon in zip(nav, ['today','cabinet','settings'], ['오늘','약보관함','설정'], [':material/pill:',':material/medical_services:',':material/settings:']):
+            col.button(label,icon=icon,key='nav_'+page,use_container_width=True,
+                       type='primary' if st.session_state.mobile_nav_page==page else 'secondary',
+                       on_click=go_page,args=(page,))
+    page=st.session_state.mobile_nav_page
+    if page=='settings':
+        st.markdown('### ⚙️ 설정')
+        settings_page()
+        return
+    if page=='cabinet':
+        st.markdown('### 🧰 약보관함')
+        add=st.columns(2,gap='small')
+        if add[0].button('가족 등록·관리',icon=':material/person_add:',use_container_width=True): registration('family')
+        if add[1].button('약 등록',icon=':material/add:',use_container_width=True): registration('medicine')
+        cabinet_list()
+        return
     people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
-    top=st.columns([4,1])
-    with top[1]:
-        if st.button('⚙️',help='큰 글씨 · 음성 · QR',use_container_width=True): mobile_settings()
     if people:
         names={p['id']:p['name'] for p in people}
         pending=st.session_state.pop('pending_family_selection',None)
-        if pending in names: st.session_state['mobile_family']=pending
-        if st.session_state.get('mobile_family') not in names: st.session_state['mobile_family']=people[0]['id']
-        with top[0]: pid=st.selectbox('가족 선택',list(names),format_func=lambda x:'👤 '+names[x],label_visibility='collapsed',key='mobile_family')
+        if pending in names: st.session_state['selected_family_id']=pending
+        if st.session_state.get('selected_family_id') not in names: st.session_state['selected_family_id']=people[0]['id']
+        st.session_state['today_family_widget']=st.session_state['selected_family_id']
+        pid=st.selectbox('가족 선택',list(names),format_func=lambda x:'👤 '+names[x],label_visibility='collapsed',key='today_family_widget',on_change=save_preference,args=('today_family_widget','selected_family_id'))
         mobile_board(pid,elder)
-    else: st.info('👨‍👩‍👧 먼저 가족을 등록하세요.')
-    with st.container(key='mobile_bottom'):
-        buttons=st.columns(3,gap='small')
-        if buttons[0].button('👤 가족',use_container_width=True): registration('family')
-        if buttons[1].button('＋ 약',use_container_width=True): registration('medicine')
-        if buttons[2].button('🧰 상비약',use_container_width=True): inventory()
-    st.caption('🔒 '+('영구 저장 연결' if PG else '데모 저장 · 재시작 시 유실 가능')+' · 화면을 닫으면 알림 불가')
+    else:
+        st.info('👨‍👩‍👧 약보관함에서 가족과 약을 먼저 등록하세요.')
+        if st.button('약보관함 열기',icon=':material/medical_services:',use_container_width=True,on_click=go_page,args=('cabinet',)): pass
+
 
 
 if __name__ == '__main__':
