@@ -1070,6 +1070,33 @@ def dose_notifications(person_id, person_name, completed, total):
     if not notices and not tasks:st.info('알림이 없습니다.')
 
 
+@st.dialog('약 복용 확인',width='small')
+def medicine_schedules_dialog(med,person,day,schedules):
+    st.subheader(med['name'])
+    st.write(person+' · '+med['dose'])
+    pending=[slot for slot,done in schedules if not done]
+    if not pending:
+        st.success('오늘 복용 기록을 모두 남겼어요.');return
+    slot=pending[0] if len(pending)==1 else st.selectbox('기록할 회차',pending)
+    early=datetime.combine(date.fromisoformat(day),datetime.strptime(slot,'%H:%M').time(),TZ)>now()
+    if early:st.warning('예정 시각 전입니다. 처방 시각을 확인하세요.')
+    checked=st.checkbox('실제로 복용한 약과 회차를 확인했어요',key='tile_ack_'+med['id'])
+    same=st.checkbox('같은 성분의 다른 약 기록을 확인했어요',key='tile_same_'+med['id'])
+    if st.button('먹었어요',type='primary',use_container_width=True,disabled=not checked):
+        ok,msg=take(med['id'],day,slot,same)
+        if ok:
+            st.session_state['dose_toast']=f"{person} · {med['name']} 복용을 기록했습니다."
+            st.rerun()
+        else:st.warning(msg)
+    if st.button('못 먹었어요 / 먹었는지 몰라요',use_container_width=True):
+        for k in list(st.session_state):
+            if k.startswith('mq_'):del st.session_state[k]
+        chosen=dict(med);chosen['person']=person
+        st.session_state['mq_target']={'m':chosen,'day':day,'slot':slot}
+        st.session_state['mq_step']='reason';st.session_state['mq_back_stack']=[]
+        st.session_state.page='놓친 약 확인';st.rerun()
+
+
 @st.dialog('복용 확인',width='small')
 def dose_action_dialog(m, person, day, slot, done):
     st.subheader(m['name'])
@@ -1177,34 +1204,36 @@ def dashboard(person_id, elder):
     st.html('<style>.st-key-dose_confirm button{background:#176f57!important;border-color:#176f57!important;min-height:58px!important;border-radius:16px!important}.st-key-dose_confirm button p,.st-key-dose_confirm button span{color:#fff!important;-webkit-text-fill-color:#fff!important}</style>')
     if st.session_state.get('dose_toast'):
         st.toast(st.session_state.pop('dose_toast'),icon=':material/check_circle:')
-    st.markdown('**오늘 시간표**')
-    import math
-    per_page=max(1,len(slots))
-    total_pages=max(1,math.ceil(len(slots)/per_page))
-    page_key='schedule_page_'+person_id
-    current_page=0
-    visible_slots=slots[current_page*per_page:(current_page+1)*per_page]
+    st.markdown('**내 약**')
+    # One tile per medicine, not per time. Keep individual schedules inside its dialog.
+    import base64
+    photos={r['med_id']:r['image_b64'] for r in rows('SELECT med_id,image_b64 FROM fm_photos')}
+    med_groups={}
+    for entry in slots:med_groups.setdefault(entry['m']['id'],[]).append(entry)
+    def priority(entries):
+        return 0 if any(not e['done'] and e['scheduled']<=current and follow_map.get((e['m']['id'],e['time'])) not in ('안내 확인 후 건너뜀','안내 확인 후 복용 보고','기록 확인 완료') for e in entries) else 2 if all(e['done'] for e in entries) else 1
+    groups=sorted(med_groups.values(),key=lambda entries:(priority(entries),entries[0]['m']['name']))
     st.markdown("""<style>
-    .st-key-mobile_schedule [data-testid="stVerticalBlock"]{gap:8px!important;}
-    .st-key-mobile_schedule button{min-height:46px!important;height:auto!important;width:100%!important;
-      border-radius:14px!important;padding:8px 12px!important;justify-content:flex-start!important;}
-    .st-key-mobile_schedule button p{font-size:16px!important;line-height:1.4!important;text-align:left!important;overflow-wrap:anywhere!important;}
-    .st-key-mobile_schedule button[kind="primary"]{background:#e2f3e9!important;border:2px solid #238154!important;}
-    .st-key-mobile_schedule button[kind="primary"] p{color:#145c38!important;-webkit-text-fill-color:#145c38!important;}
-    @media(max-width:480px){.block-container{padding-top:0.5rem!important;padding-bottom:85px!important;}
-      [data-testid="stHeadingWithActionElements"] h3{font-size:21px!important;}
-      .st-key-mobile_schedule button p{font-size:16px!important;}}
+    .st-key-medicine_tiles [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:10px!important;}
+    .st-key-medicine_tiles [data-testid="stColumn"]{flex:1 1 0!important;width:calc(50% - 5px)!important;min-width:0!important;}
+    .st-key-medicine_tiles [data-testid="stImage"] img{aspect-ratio:1/1!important;object-fit:contain!important;width:100%!important;border:1px solid #d5e2da;border-radius:18px;background:#f5f9f6;}
+    .st-key-medicine_tiles button{min-height:48px!important;border-radius:12px!important;padding:8px!important;}
+    .st-key-medicine_tiles button p{font-size:15px!important;white-space:normal!important;overflow-wrap:anywhere!important;}
     </style>""",unsafe_allow_html=True)
-    with st.container(key='mobile_schedule'):
-        for entry in visible_slots:
-            identity=(entry['m']['id'],entry['time'])
-            action=follow_map.get(identity,'')
-            done=entry['done']
-            icon=':material/check_circle:' if done else ':material/skip_next:' if action=='안내 확인 후 건너뜀' else ':material/error_outline:' if identity in missed_keys else ':material/schedule:' if entry['scheduled']>current else ':material/help_outline:'
-            label='복용 완료' if done else '건너뜀' if action=='안내 확인 후 건너뜀' else '확인 필요'
-            text=entry['time']+'   '+entry['m']['name']
-            if st.button(text,icon=icon,key='dose_open_'+entry['m']['id']+'_'+entry['time'],help=label+' · '+entry['m']['dose'],use_container_width=True,type='primary' if done else 'secondary'):
-                dose_action_dialog(dict(entry['m']),pname,today,entry['time'],done)
+    with st.container(key='medicine_tiles'):
+        for offset in range(0,len(groups),2):
+            cols=st.columns(2,gap='small')
+            for col,entries in zip(cols,groups[offset:offset+2]):
+                med=entries[0]['m'];rank=priority(entries)
+                with col:
+                    if med['id'] in photos:
+                        st.image(base64.b64decode(photos[med['id']]),use_container_width=True)
+                    else:
+                        st.html('<div style="aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border:1px solid #d5e2da;border-radius:18px;background:#f1f7f3;"><div style="width:36%;height:60%;border:3px solid #28644c;border-radius:999px;background:linear-gradient(to bottom,#ffffff 0%,#ffffff 48%,#28644c 48%,#28644c 52%,#a6d4b8 52%,#a6d4b8 100%);transform:rotate(35deg)" role="img" aria-label="알약 그림"></div></div>')
+                    prefix='! 확인 필요' if rank==0 else '✓ 기록 완료' if rank==2 else '◷ 예정'
+                    if st.button(med['name']+' · '+prefix,key='tile_med_'+med['id'],use_container_width=True):
+                        medicine_schedules_dialog(dict(med),pname,today,[(e['time'],e['done']) for e in entries])
+
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
