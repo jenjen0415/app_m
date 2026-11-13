@@ -720,7 +720,14 @@ def home_screen(elder):
         st.subheader('가족')
         if st.button('＋ 가족 · 약 등록',use_container_width=True):registration()
         people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
-        for person in people:st.write('👤 '+person['name'])
+        if st.session_state.pop('family_removed_notice',False):
+            st.toast('가족을 삭제했습니다.',icon=':material/check_circle:')
+        for person in people:
+            with st.container(border=True):
+                info,action=st.columns([4,1],gap='small')
+                info.markdown('**'+safe(person['name'])+'**')
+                if action.button('',icon=':material/delete:',help=person['name']+' 삭제',key='family_page_delete_'+person['id']):
+                    remove_family_dialog(person['id'],person['name'])
         if st.button('📷 초대 QR',use_container_width=True):share_dialog()
         with st.expander('사용 안내'):
             st.write('오늘: 복용 확인 · 약통: 약 관리 · 기록: 복용 내역 · 가족: 등록과 초대')
@@ -902,6 +909,23 @@ def followup_history():
         missed_history()
 
 
+@st.dialog('가족 삭제')
+def remove_family_dialog(person_id, name):
+    st.subheader(f'{name}님을 삭제할까요?')
+    st.write('가족 목록에서 제외하고 앞으로의 복용 일정을 중지합니다. 과거 기록은 보관합니다.')
+    yes,no=st.columns(2)
+    if yes.button('삭제하기',type='primary',use_container_width=True):
+        with database(True) as conn:
+            execute(conn,'INSERT INTO fm_hidden_people(person_id) VALUES (?) ON CONFLICT(person_id) DO NOTHING',(person_id,))
+            execute(conn,'UPDATE fm_meds SET active=0 WHERE person_id=?',(person_id,))
+            execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
+            execute(conn,'UPDATE fm_contact_tasks SET done=1 WHERE person_id=?',(person_id,))
+        st.session_state['pending_family_selection']=''
+        st.session_state['family_removed_notice']=True
+        st.rerun()
+    if no.button('취소',use_container_width=True):st.rerun()
+
+
 @st.dialog('등록된 가족')
 def family_list():
     people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
@@ -1038,7 +1062,7 @@ def dashboard(person_id, elder):
     pname=person_name[0]['name'] if person_name else '가족'
     completed_slots=sum(x['done'] for x in slots)
     progress=round(100*completed_slots/len(slots)) if slots else 0
-    st.markdown(f"""<style>
+    st.html(f"""<style>
     .dose-focus{{background:#fff;border:1px solid #d4e3df;border-radius:24px;
       padding:22px 24px;margin:12px 0 18px;box-shadow:0 8px 24px #16304708;color:#163047;}}
     .dose-focus .dose-top{{display:flex;justify-content:space-between;align-items:center;gap:12px;}}
@@ -1060,7 +1084,7 @@ def dashboard(person_id, elder):
     <div class="dose-amount">{safe(m['dose'])}</div>
     <div class="dose-footer"><span>오늘 기록한 일정</span><strong>{completed_slots} / {len(slots)}</strong></div>
     <div class="dose-track" role="progressbar" aria-valuemin="0" aria-valuemax="{len(slots)}" aria-valuenow="{completed_slots}"><div class="dose-fill"></div></div>
-    </section>""",unsafe_allow_html=True)
+    </section>""")
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
