@@ -990,13 +990,12 @@ def dose_notifications(person_id, person_name, completed, total):
                     st.session_state['mq_back_stack']=[]
                     st.session_state.page='놓친 약 확인'
                     st.rerun()
+    st.caption('복용 여부를 기록해 주세요. 추가 복용 안내가 아닙니다.')
     notices=rows('SELECT * FROM fm_notices WHERE person_id=? ORDER BY day DESC,slot DESC LIMIT 100',(person_id,))
     for n in notices:
         with st.container(border=True):
-            st.markdown(f"**💊 {safe(n['medicine'])} 복용 기록이 없어요**")
-            st.write(f"{n['day']} {n['slot']} 예정")
-            st.write('먹었다면 오늘 → 먹었어요, 못 먹었다면 오른쪽 알약 빗금 아이콘을 누르세요.')
-            st.caption('기록 확인 알림입니다. 지금 복용하라는 뜻은 아닙니다.')
+            st.markdown(f"**{safe(n['medicine'])}**")
+            st.write(f"{n['day']} · {n['slot']}  |  기록 없음")
 
     if not notices and not tasks:st.info('알림이 없습니다.')
 
@@ -1063,34 +1062,29 @@ def dashboard(person_id, elder):
     completed_slots=sum(x['done'] for x in slots)
     status_icon='✓' if selected['done'] else '!' if expired_selected else '◷'
     status_label='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '복용 예정' if early else '복용 여부 확인'
-    # Friendly original character, while keeping medicine facts visually dominant.
-    mood='기록했어요!' if selected['done'] else '누구의 약인지 먼저 확인해요'
-    face='◡' if selected['done'] else 'ᴗ'
+    # Compact illustrated card: house character, not a distorted medicine shape.
     st.html(f"""<style>
-    .buddy-card{{margin:14px 0 18px;border:2px solid #bfd6cc;border-radius:28px;overflow:hidden;background:#fffdf7;color:#183f36;}}
-    .buddy-card *{{box-sizing:border-box;}}
-    .buddy-top{{padding:18px;background:#e9f3d9;display:flex;align-items:center;gap:16px;}}
-    .pill-buddy{{position:relative;flex:none;width:64px;height:86px;border:3px solid #244f43;border-radius:32px;background:linear-gradient(#fffdf7 50%,#a8d8c1 50%);transform:rotate(-10deg);}}
-    .pill-buddy .eyes{{position:absolute;top:20px;left:15px;letter-spacing:10px;font-size:18px;color:#244f43;}}
-    .pill-buddy .smile{{position:absolute;top:39px;left:23px;font-size:20px;color:#244f43;}}
-    .buddy-hello{{font-size:14px;color:#405a42;line-height:1.6;}}
-    .buddy-hello strong{{display:block;font-size:23px;color:#193f35;}}
-    .buddy-facts{{padding:22px 18px;display:flex;align-items:center;gap:18px;}}
-    .buddy-time{{flex:none;text-align:center;background:#fff0cf;border:1px solid #ddcda8;border-radius:18px;padding:14px 12px;}}
-    .buddy-time small{{display:block;color:#64532d;font-size:12px;margin-bottom:6px;}}
-    .buddy-time b{{font-size:30px;color:#3c4731;letter-spacing:-1px;}}
-    .buddy-drug{{min-width:0;}}
-    .buddy-drug h2{{font-size:26px;line-height:1.35;margin:0 0 8px;color:#183f36;overflow-wrap:anywhere;}}
-    .buddy-drug p{{font-size:18px;line-height:1.5;margin:0;color:#3e554a;overflow-wrap:anywhere;}}
-    .buddy-footer{{border-top:1px dashed #c6d6c9;padding:13px 18px;display:flex;justify-content:space-between;font-size:14px;color:#3d594d;background:#f3f6eb;gap:8px;}}
-    .buddy-footer strong{{color:#234c3d;}}
-    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:18px!important;min-height:58px!important;}}
-    .st-key-dose_confirm button p,.st-key-dose_confirm button span{{color:white!important;-webkit-text-fill-color:white!important;}}
-    @media(max-width:380px){{.buddy-facts{{gap:12px;padding:18px 12px;}}.buddy-time b{{font-size:26px;}}.buddy-drug h2{{font-size:23px;}}}}
-    </style><section class="buddy-card" aria-label="가족 복용 일정">
-    <div class="buddy-top"><div class="pill-buddy" aria-hidden="true"><span class="eyes">••</span><span class="smile">{face}</span></div><div class="buddy-hello"><strong>{safe(pname)}의 약 챙기기</strong>{safe(mood)}</div></div>
-    <div class="buddy-facts"><div class="buddy-time"><small>예정 시각</small><b>{safe(slot)}</b></div><div class="buddy-drug"><h2>{safe(m['name'])}</h2><p>{safe(m['dose'])}</p></div></div>
-    <div class="buddy-footer"><span>{safe(status_label)}</span><strong>오늘 기록 {completed_slots}/{len(slots)}</strong></div></section>""")
+    .daily-card{{margin:12px 0 18px;border:1px solid #c9dcd3;border-radius:24px;background:#fffefa;overflow:hidden;color:#173f36;}}
+    .daily-card *{{box-sizing:border-box;}}
+    .daily-card .daily-head{{display:flex;align-items:center;gap:14px;padding:16px 18px;background:#edf4e8;}}
+    .daily-card .home-friend{{position:relative;width:48px;height:42px;border-radius:10px;background:#add4bd;border:2px solid #285746;margin-top:12px;flex:none;}}
+    .daily-card .home-friend:before{{content:'';position:absolute;left:3px;top:-18px;width:33px;height:33px;background:#add4bd;border-left:2px solid #285746;border-top:2px solid #285746;transform:rotate(45deg);border-radius:5px;}}
+    .daily-card .home-face{{position:relative;z-index:1;text-align:center;line-height:37px;font-size:20px;font-weight:bold;color:#285746;}}
+    .daily-card .daily-head strong{{display:block;font-size:21px;color:#173f36;}}
+    .daily-card .daily-head small{{display:block;font-size:14px;margin-top:4px;color:#3e5a4e;}}
+    .daily-card .daily-body{{display:flex;gap:18px;align-items:center;padding:22px 18px;}}
+    .daily-card .daily-time{{font-size:32px;font-weight:850;letter-spacing:-1px;color:#173f36;flex:none;}}
+    .daily-card .daily-medicine{{border-left:2px solid #d3e2d8;padding-left:18px;min-width:0;}}
+    .daily-card .daily-medicine b{{display:block;font-size:25px;line-height:1.35;color:#173f36;overflow-wrap:anywhere;}}
+    .daily-card .daily-medicine span{{display:block;font-size:18px;color:#3b554a;margin-top:6px;line-height:1.5;overflow-wrap:anywhere;}}
+    .daily-card .daily-bottom{{display:flex;justify-content:space-between;padding:11px 18px;border-top:1px dashed #d3dfd5;font-size:14px;background:#f8faf4;color:#355449;gap:8px;}}
+    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:16px!important;min-height:56px!important;}}
+    .st-key-dose_confirm button p,.st-key-dose_confirm button span{{color:#fff!important;-webkit-text-fill-color:#fff!important;}}
+    @media(max-width:380px){{.daily-card .daily-body{{gap:12px;padding:18px 12px;}}.daily-card .daily-medicine{{padding-left:12px;}}.daily-card .daily-time{{font-size:27px;}}.daily-card .daily-medicine b{{font-size:22px;}}}}
+    </style><section class="daily-card" aria-label="복용 일정">
+    <div class="daily-head"><div class="home-friend" aria-hidden="true"><div class="home-face">•ᴗ•</div></div><div><strong>{safe(pname)}의 약</strong><small>{'기록했어요. 잘 챙기셨어요!' if selected['done'] else '시간과 약을 확인해요'}</small></div></div>
+    <div class="daily-body"><div class="daily-time">{safe(slot)}</div><div class="daily-medicine"><b>{safe(m['name'])}</b><span>{safe(m['dose'])}</span></div></div>
+    <div class="daily-bottom"><span>{safe(status_label)}</span><span>오늘 기록 <b>{completed_slots}/{len(slots)}</b></span></div></section>""")
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
