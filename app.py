@@ -91,6 +91,7 @@ def rows(sql, args=()):
 def initialize(_url):
     with database(True) as conn:
         for sql in [
+            'CREATE TABLE IF NOT EXISTS fm_removed (med_id TEXT PRIMARY KEY, removed_at TEXT NOT NULL)',
             'CREATE TABLE IF NOT EXISTS fm_people (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)',
             '''CREATE TABLE IF NOT EXISTS fm_meds (
             id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES fm_people(id),
@@ -282,6 +283,49 @@ def history_dialog():
     if st.button('오기록 취소', disabled=not checked, use_container_width=True):
         with database(True) as conn:
             execute(conn, 'DELETE FROM fm_logs WHERE id=?', (selected['id'],))
+        st.rerun()
+
+
+@st.dialog('✏️ 약 정보 수정', width='small')
+def edit_medicine(med_id):
+    records=rows('SELECT * FROM fm_meds WHERE id=?',(med_id,))
+    if not records:st.info('약을 찾을 수 없습니다.');return
+    m=records[0]
+    st.caption('이 약을 등록한 가족의 정보만 바뀝니다. 기존 복용 기록의 시각은 유지됩니다.')
+    with st.form('edit_med_'+med_id):
+        name=st.text_input('약 이름',value=m['name'],max_chars=100)
+        ingredient=st.text_input('주성분',value=m['ingredient'],max_chars=100)
+        dose=st.text_input('1회 복용량',value=m['dose'],max_chars=100)
+        expiry=st.date_input('유효기간',value=date.fromisoformat(m['expiry']))
+        times=st.text_input('복용 시각',value=', '.join(json.loads(m['times'])),placeholder='예시) 08:00, 20:00')
+        gap=st.number_input('최소 복용 간격 (시간)',min_value=0.0,max_value=168.0,value=float(m['gap']),step=0.5)
+        stock=st.checkbox('상비약',value=bool(m['stock']))
+        active=st.checkbox('복용 일정 사용',value=bool(m['active']))
+        submit=st.form_submit_button('변경 저장',use_container_width=True)
+    if submit:
+        values=[v.strip() for v in times.split(',') if v.strip()]
+        if not name.strip() or not dose.strip():st.warning('약 이름과 복용량을 입력하세요.');return
+        if (active and not values) or any(not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d',v) for v in values):
+            st.warning('복용 시각을 08:00, 20:00 형식으로 입력하세요.');return
+        with database(True) as conn:
+            execute(conn,'UPDATE fm_meds SET name=?,ingredient=?,dose=?,expiry=?,times=?,gap=?,stock=?,active=? WHERE id=?',(name.strip(),ingredient.strip(),dose.strip(),expiry.isoformat(),json.dumps(sorted(set(values))),gap,int(stock),int(active),med_id))
+        st.rerun()
+
+
+@st.dialog('🗑️ 약 삭제', width='small')
+def delete_medicine(med_id):
+    records=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE m.id=?',(med_id,))
+    if not records:st.info('약을 찾을 수 없습니다.');return
+    m=records[0]
+    st.markdown(f"**{safe(m['person'])} · {safe(m['name'])}**")
+    st.write('정말 삭제하시겠습니까?')
+    st.caption('약통과 앞으로의 복용 일정에서 제외됩니다. 과거 복용·미복용 기록은 남습니다.')
+    left,right=st.columns(2)
+    if left.button('취소',use_container_width=True):st.rerun()
+    if right.button('삭제하기',type='primary',use_container_width=True):
+        with database(True) as conn:
+            execute(conn,'UPDATE fm_meds SET active=0 WHERE id=?',(med_id,))
+            execute(conn,'INSERT INTO fm_removed VALUES (?,?) ON CONFLICT(med_id) DO NOTHING',(med_id,now().isoformat()))
         st.rerun()
 
 
@@ -621,11 +665,17 @@ def home_screen(elder):
         c1,c2=st.columns(2)
         if c1.button('＋ 약 등록',use_container_width=True):registration()
         if c2.button('💊 목록 보기',use_container_width=True):inventory()
-        meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id ORDER BY m.expiry')
+        meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE NOT EXISTS (SELECT 1 FROM fm_removed r WHERE r.med_id=m.id) ORDER BY m.expiry')
         if not meds:st.info('등록한 약이 없습니다.')
         for m in meds:
             expired=m['expiry']<now().date().isoformat()
-            st.markdown(f'<div class="hero"><div class="name">{safe(m["name"])}</div><div class="small">{safe(m["person"])} · {safe(m["dose"])}<br>{"⛔ 기한 지남" if expired else "📅 유효기간"} {safe(m["expiry"])}</div></div>',unsafe_allow_html=True)
+            with st.container(border=True):
+                info,edit,delete=st.columns([6,1,1],gap='small')
+                info.markdown(f"**💊 {safe(m['name'])}**")
+                info.write(f"{m['person']} · {m['dose']}")
+                info.caption(('⛔ 기한 지남 ' if expired else '📅 유효기간 ')+m['expiry'])
+                if edit.button('',icon=':material/edit:',help='약 정보 수정',key='edit_'+m['id']):edit_medicine(m['id'])
+                if delete.button('',icon=':material/delete:',help='약 삭제',key='delete_'+m['id']):delete_medicine(m['id'])
     elif page=='기록':
         st.subheader('복용 현황')
         intake_table()
