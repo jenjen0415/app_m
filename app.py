@@ -759,18 +759,19 @@ def family_list():
         st.write('👤 '+p['name'])
 
 
-@st.fragment(run_every='20s')
 @st.dialog('🔔 복용 알림', width='small')
-def dose_notifications(person_name, due_items, completed, total):
+def dose_notifications(person_id, person_name, completed, total):
     st.markdown(f'**👤 {safe(person_name)}**')
-    st.metric('복용 확인 필요', f'{len(due_items)}건')
-    st.metric('오늘 기록', f'{completed}/{total}회')
-    for entry in due_items:
-        st.write(f"🕒 {entry['time']} · {entry['m']['name']}")
-    if not due_items:st.success('현재 확인할 일정이 없습니다.')
-    st.caption('기록이 없는 일정입니다. 실제 미복용을 뜻하지 않습니다.')
+    st.write(f'오늘 복용 기록 {completed}/{total}회')
+    notices=rows('SELECT * FROM fm_notices WHERE person_id=? ORDER BY day DESC,slot DESC LIMIT 100',(person_id,))
+    for n in notices:
+        with st.container(border=True):
+            st.write(f"🕒 {n['day']} {n['slot']} · {n['medicine']}")
+            st.caption('읽음 · 복용 여부는 오늘 화면에서 확인하세요.')
+    if not notices:st.info('알림이 없습니다.')
 
 
+@st.fragment(run_every='20s')
 def dashboard(person_id, elder):
     st.markdown('<style>\n.st-key-family_schedule_row [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:8px!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:first-child{width:25%!important;flex:0 0 25%!important;min-width:0!important;}\n.st-key-family_schedule_row [data-testid="stColumn"]:last-child{width:calc(75% - 8px)!important;flex:1 1 0!important;min-width:0!important;}\n</style>',unsafe_allow_html=True)
     # Select family before querying schedules; scalar ids keep selection stable.
@@ -825,9 +826,31 @@ def dashboard(person_id, elder):
     state='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '예정' if early else '확인 필요'
     pname=person_name[0]['name'] if person_name else '가족'
     st.write(f"💊 {m['dose']} · {state}")
+    with database(True) as conn:
+        execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
+        for entry in due:
+            notice_id=f"{person_id}|{today}|{entry['m']['id']}|{entry['time']}"
+            execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
+    unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
+    unread_count=len(unread)
+    if unread_count:
+        st.markdown('<style>.st-key-today_tools button:has([data-testid="stIconMaterial"]):first-child{border:3px solid #b42318!important;background:#fff0ec!important;} @keyframes bellPulse{50%{box-shadow:0 0 0 6px #b4231820;}} .st-key-today_tools [data-testid="stButton"]:first-child button{animation:bellPulse 1.3s ease-in-out infinite;} @media(prefers-reduced-motion:reduce){.st-key-today_tools button{animation:none!important;}}</style>',unsafe_allow_html=True)
+        # Browser-owned interaction starts audio; repeat only while this unread component exists.
+        components.html('''<button id="sound" style="border:2px solid #b42318;border-radius:12px;background:#fff0ec;color:#7a2118;padding:10px;font-size:16px;font-weight:700">🔔 안 읽은 알림 · 소리 켜기</button>
+        <script>
+        let ctx=null, timer=null;
+        function beep(){if(!ctx)return;const osc=ctx.createOscillator(), gain=ctx.createGain();osc.connect(gain);gain.connect(ctx.destination);osc.frequency.value=880;gain.gain.setValueAtTime(.08,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.35);osc.start();osc.stop(ctx.currentTime+.35);}
+        document.getElementById('sound').onclick=async()=>{if(!ctx){const A=window.AudioContext||window.webkitAudioContext;if(!A)return;ctx=new A();}await ctx.resume();beep();if(!timer)timer=setInterval(beep,15000);document.getElementById('sound').innerText='🔔 알림 소리 켜짐';};
+        window.addEventListener('pagehide',()=>{clearInterval(timer);if(ctx)ctx.close();});
+        </script>''',height=56)
+    if st.session_state.pop('open_notices_'+person_id,False):
+        dose_notifications(person_id,pname,len(done),len(slots))
     with st.container(key='today_tools'):
-        if st.button(str(len(due)) if due else '',icon=':material/notifications:',help='복용 알림 · 오늘 기록',key='rail_notifications'):
-            dose_notifications(pname,due,len(done),len(slots))
+        if st.button(str(unread_count) if unread_count else '',icon=':material/notifications_active:' if unread_count else ':material/notifications:',help=f'안 읽은 알림 {unread_count}건',key='rail_notifications'):
+            with database(True) as conn:
+                execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
+            st.session_state['open_notices_'+person_id]=True
+            st.rerun(scope='fragment')
         if st.button('',icon=':material/alarm_off:',help='못 먹은 약',key='rail_missed'):
             st.session_state.page='놓친 약 확인';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
