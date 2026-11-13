@@ -93,6 +93,7 @@ def initialize(_url):
         for sql in [
             'CREATE TABLE IF NOT EXISTS fm_removed (med_id TEXT PRIMARY KEY, removed_at TEXT NOT NULL)',
             'CREATE TABLE IF NOT EXISTS fm_hidden_people (person_id TEXT PRIMARY KEY)',
+            '''CREATE TABLE IF NOT EXISTS fm_contact_tasks (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, med_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)''',
             'CREATE TABLE IF NOT EXISTS fm_people (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)',
             '''CREATE TABLE IF NOT EXISTS fm_meds (
             id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES fm_people(id),
@@ -471,7 +472,7 @@ def save_missed(med_id, day, slot, reason, note):
             return False, '오늘의 등록된 일정만 기록할 수 있습니다.'
         if execute(conn, 'SELECT id FROM fm_logs WHERE med_id=? AND day=? AND slot=?', (med_id, day, slot)).fetchone():
             return False, '이미 복용한 기록이 있습니다. 복용 기록을 먼저 확인하세요.'
-        if reason not in ['깜빡했어요', '사정상 못 먹었어요']:
+        if reason not in ['깜빡했어요', '사정상 못 먹었어요','약이 없어요','몸이 불편해요','먹었는지 모르겠어요','다른 이유']:
             return False, '사유를 선택하세요.'
         execute(conn, '''INSERT INTO fm_missed (id,med_id,day,slot,reason,note,recorded_at)
             VALUES (?,?,?,?,?,?,?) ON CONFLICT(med_id,day,slot)
@@ -790,10 +791,14 @@ def missed_flow(elder):
         if not ok:st.error(msg);return
         ok,msg=save_followup(m['id'],day,slot,result,detail,source)
         if not ok:st.error(msg);return
+        if result!='확인 대기':
+            with database(True) as conn:
+                execute(conn,'UPDATE fm_contact_tasks SET done=1 WHERE med_id=? AND day=? AND slot=?',(m['id'],day,slot))
         advance('done')
     step=st.session_state.get('mq_step','select')
     if step=='done':
-        st.subheader('확인을 완료했어요')
+        st.subheader('저장했어요')
+        st.write('약국 문의가 남아 있으면 알림에서 계속 확인할 수 있어요.')
         if st.button('확인',type='primary',use_container_width=True,key='mq_done'):
             for k in list(st.session_state):
                 if k.startswith('mq_'):del st.session_state[k]
@@ -854,21 +859,29 @@ def missed_flow(elder):
         if cleaned and re.fullmatch(r'\+?[0-9]{7,15}',cleaned):
             st.link_button('전화하기','tel:'+cleaned,use_container_width=True)
         if st.button('답변을 받았어요',use_container_width=True):advance('instruction')
-        if st.button('나중에 문의할게요 · 저장',use_container_width=True):finish()
+        if st.button('약국에 물어볼게요',use_container_width=True):
+            target=st.session_state['mq_target'];m=target['m']
+            with database(True) as conn:
+                task_id=f"{m['id']}|{target['day']}|{target['slot']}"
+                execute(conn,'INSERT INTO fm_contact_tasks VALUES (?,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET done=0',(task_id,m['person_id'],m['id'],target['day'],target['slot'],m['name']))
+            finish()
         return
     if step=='instruction':
         st.subheader('확인한 복용법을 적어주세요')
-        detail=st.text_input('안내 내용',key='mq_detail')
-        source=st.text_input('확인한 곳',placeholder='예시) 약 봉투 / 약사',key='mq_source')
+        detail=st.text_input('안내 내용',value=st.session_state.get('mq_saved_detail',''),key='mq_detail')
+        source=st.text_input('확인한 곳',value=st.session_state.get('mq_saved_source',''),placeholder='예시) 약 봉투 / 약사',key='mq_source')
         if st.button('다음',type='primary',use_container_width=True):
             if not detail.strip() or not source.strip():st.toast('안내 내용과 확인한 곳을 입력하세요.')
-            else:advance('result')
+            else:
+                st.session_state['mq_saved_detail']=detail.strip()
+                st.session_state['mq_saved_source']=source.strip()
+                advance('result')
         return
     if step=='result':
         st.subheader('어떻게 처리했나요?')
         for i,(label,result) in enumerate([('아직 복용하지 않았어요','확인 대기'),('안내에 따라 건너뛰었어요','안내 확인 후 건너뜀'),('안내에 따라 복용했어요','안내 확인 후 복용 보고')]):
             if st.button(label,key='mq_result_'+str(i),use_container_width=True):
-                finish(result,st.session_state.get('mq_detail',''),st.session_state.get('mq_source',''))
+                finish(result,st.session_state.get('mq_saved_detail',''),st.session_state.get('mq_saved_source',''))
         return
 
 
@@ -940,6 +953,19 @@ def intake_table():
 @st.dialog('🔔 복용 알림', width='small')
 def dose_notifications(person_id, person_name, completed, total):
     st.markdown(f'**👤 {safe(person_name)}**')
+    tasks=rows('SELECT * FROM fm_contact_tasks WHERE person_id=? ORDER BY day DESC,slot DESC',(person_id,))
+    for task in tasks:
+        with st.container(border=True):
+            st.markdown(f"**{safe(task['medicine'])} · 약국 문의{' 완료' if task['done'] else ' 필요'}**")
+            st.write(f"{task['day']} {task['slot']} 놓친 약의 복용법을 약사에게 물어보세요.")
+            if not task['done'] and st.button('약사 답변 입력',key='task_answer_'+task['id'],use_container_width=True):
+                med=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE m.id=?',(task['med_id'],))
+                if med:
+                    st.session_state['mq_target']={'m':med[0],'day':task['day'],'slot':task['slot']}
+                    st.session_state['mq_step']='instruction'
+                    st.session_state['mq_back_stack']=[]
+                    st.session_state.page='놓친 약 확인'
+                    st.rerun()
     notices=rows('SELECT * FROM fm_notices WHERE person_id=? ORDER BY day DESC,slot DESC LIMIT 100',(person_id,))
     for n in notices:
         with st.container(border=True):
@@ -948,7 +974,7 @@ def dose_notifications(person_id, person_name, completed, total):
             st.write('먹었다면 오늘 → 먹었어요, 못 먹었다면 오른쪽 알약 빗금 아이콘을 누르세요.')
             st.caption('기록 확인 알림입니다. 지금 복용하라는 뜻은 아닙니다.')
 
-    if not notices:st.info('알림이 없습니다.')
+    if not notices and not tasks:st.info('알림이 없습니다.')
 
 
 @st.fragment(run_every='20s')
@@ -1021,7 +1047,8 @@ def dashboard(person_id, elder):
             notice_id=f"{person_id}|{today}|{entry['m']['id']}|{entry['time']}"
             execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
-    unread_count=len(unread)
+    pending_tasks=rows('SELECT id FROM fm_contact_tasks WHERE person_id=? AND done=0',(person_id,))
+    unread_count=len(unread)+len(pending_tasks)
     bell_border = '#b42318' if unread_count else '#abc7c0'
     bell_bg = '#fff0ec' if unread_count else '#ffffff'
     st.markdown(f"""<style>
