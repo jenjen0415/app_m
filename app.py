@@ -448,7 +448,8 @@ def main():
         </style>''', unsafe_allow_html=True)
     home_screen(elder)
     storage = '영구 DB 연결' if PG else '데모 저장 · 재시작 시 유실 가능'
-    with st.expander('ⓘ 안전 · 저장 안내'):
+    if st.session_state.get('page') != '놓친 약 확인':
+      with st.expander('ⓘ 안전 · 저장 안내'):
         st.caption(f'{storage} · 한국 시간 · 열린 화면에서만 일정 확인. 처방을 대체하지 않으며 약물 상호작용 전체를 판별하지 않습니다.')
 
 
@@ -775,100 +776,93 @@ def touch_choice(label, options, key):
 
 
 def missed_flow(elder):
-    st.markdown("""<style>
-    div[class*="st-key-touch_"] button{min-height:60px!important;padding:14px 18px!important;
-      border-radius:14px!important;text-align:left!important;justify-content:flex-start!important;
-      touch-action:manipulation;}
-    div[class*="st-key-touch_"] button p{font-size:20px!important;line-height:1.4!important;white-space:normal!important;}
-    </style>""",unsafe_allow_html=True)
-    st.subheader('못 먹은 약')
-    if st.session_state.get('missed_confirmation_complete'):
-        st.success('확인을 완료했어요')
-        if st.button('오늘로 돌아가기',key='finished_to_today',use_container_width=True):
-            st.session_state.pop('missed_confirmation_complete',None)
+    # One question per render. Every answer immediately advances.
+    def advance(step):
+        st.session_state['mq_step']=step
+        st.rerun()
+    def finish(result='확인 대기', detail='', source=''):
+        target=st.session_state['mq_target']
+        m=target['m']; day=target['day']; slot=target['slot']
+        ok,msg=save_missed(m['id'],day,slot,st.session_state.get('mq_reason','깜빡했어요'),'')
+        if not ok:st.error(msg);return
+        ok,msg=save_followup(m['id'],day,slot,result,detail,source)
+        if not ok:st.error(msg);return
+        advance('done')
+    step=st.session_state.get('mq_step','select')
+    if step=='done':
+        st.subheader('확인을 완료했어요')
+        if st.button('확인',type='primary',use_container_width=True,key='mq_done'):
+            for k in list(st.session_state):
+                if k.startswith('mq_'):del st.session_state[k]
             st.session_state.page='오늘 약 먹기';st.rerun()
         return
-    options=unresolved_slots()
-    if not options:
-        st.success('확인할 약이 없습니다.');return
-    item=options[0] if len(options)==1 else st.selectbox('약 선택',options,format_func=lambda x:f"{x['day']} {x['slot']} · {x['m']['person']} · {x['m']['name']}")
-    m=item['m'];day=item['day'];slot=item['slot'];key=f"{m['id']}_{day}_{slot}"
-    st.markdown(f"**👤 {safe(m['person'])}　💊 {safe(m['name'])}**")
-    st.write(f"{day} · {slot} · {m['dose']}")
-    with database(True) as conn:
-        execute(conn,"CREATE TABLE IF NOT EXISTS fm_help (med_id TEXT PRIMARY KEY REFERENCES fm_meds(id), guidance TEXT NOT NULL, source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)")
-    guides=rows('SELECT * FROM fm_help WHERE med_id=?',(m['id'],))
-    h=guides[0] if guides else {'guidance':'','source':'','phone':''}
-    if st.session_state.pop('missed_saved_'+key,False):
-        st.toast('저장했습니다',icon=':material/check_circle:')
-    step=st.session_state.get('missed_step_'+key,1)
-    if step==3:
-        st.subheader('문의할 내용이 저장됐어요')
-        st.write('약국에 놓친 약의 복용법을 물어보세요.')
-        c1,c2=st.columns(2)
-        if c1.button('약사 답변 입력',type='primary',key='answer_'+key,use_container_width=True):
-            st.session_state['know_'+key]='알고 있어요'
-            st.session_state['missed_step_'+key]=2
-            st.rerun()
-        if c2.button('오늘로 돌아가기',key='back_today_'+key,use_container_width=True):
-            st.session_state.page='오늘 약 먹기';st.rerun()
+    if step=='select':
+        options=unresolved_slots()
+        if not options:
+            st.write('확인할 약이 없습니다.')
+            if st.button('확인',use_container_width=True):
+                st.session_state.page='오늘 약 먹기';st.rerun()
+            return
+        if len(options)==1:
+            st.session_state['mq_target']=options[0];advance('reason')
+        st.subheader('어떤 약을 못 먹었나요?')
+        for i,x in enumerate(options):
+            if st.button(f"{x['m']['person']} · {x['m']['name']} · {x['slot']}",key='mq_select_'+str(i),use_container_width=True):
+                st.session_state['mq_target']=x;advance('reason')
         return
-    if step==1:
-        st.markdown('**1. 이유 선택**')
-        reason=touch_choice('사유',['깜빡했어요','약이 없었어요','몸이 불편했어요','먹었는지 모르겠어요','다른 이유'],key='why_'+key)
-        note=st.text_input('어떤 이유인가요?',placeholder='예시) 식사 시간이 달라졌어요',key='why_note_'+key) if reason=='다른 이유' else ''
-        if reason=='몸이 불편했어요':
-            st.warning('이상 반응이 의심되면 의료진에게 문의하세요. 호흡곤란·의식 저하 등 심한 증상은 119에 연락하세요.')
-        if reason=='먹었는지 모르겠어요':
-            st.info('다시 먹기 전에 복용 기록과 가족에게 먼저 확인하세요.')
-            if st.button('📋 복용 기록 확인',key='check_history_'+key):history_dialog()
-        if st.button('다음: 복용법 확인',type='primary',use_container_width=True,key='reason_continue_'+key):
-            st.session_state['missed_step_'+key]=2
-            st.rerun()
+    if step=='reason':
+        st.subheader('왜 못 먹었나요?')
+        for i,label in enumerate(['깜빡했어요','약이 없어요','몸이 불편해요','먹었는지 모르겠어요','다른 이유']):
+            if st.button(label,key='mq_reason_'+str(i),use_container_width=True):
+                st.session_state['mq_reason']=label
+                advance('unwell' if i==2 else 'uncertain' if i==3 else 'know')
         return
-    reason=st.session_state.get('why_'+key,'깜빡했어요')
-    note=st.session_state.get('why_note_'+key,'')
-    if st.button('이전: 이유 선택',key='reason_back_'+key):
-        st.session_state['missed_step_'+key]=1;st.rerun()
-    st.markdown('**2. 놓쳤을 때 대처법을 아나요?**')
-    known=touch_choice('지침 확인',['아직 모르겠어요','알고 있어요'],key='know_'+key)
-    detail='';source='';result='확인 대기'
-    if known=='알고 있어요':
-        if h['guidance']:st.info('등록된 지침: '+h['guidance']+' · 출처: '+h['source'])
-        detail=st.text_input('안내받은 내용',value=h['guidance'],placeholder='예시) 이 약을 놓쳤을 때 약사에게 안내받은 내용',key='guide_'+key)
-        source=st.text_input('확인한 곳',value=h['source'],placeholder='예시) 약 봉투 / ○○약국',key='guide_source_'+key)
-        choice=touch_choice('처리 결과',['아직 처리 전','안내에 따라 건너뛰었어요','안내에 따라 복용했어요'],key='guide_result_'+key)
-        result={'아직 처리 전':'확인 대기','안내에 따라 건너뛰었어요':'안내 확인 후 건너뜀','안내에 따라 복용했어요':'안내 확인 후 복용 보고'}[choice]
-    else:
-        st.markdown('**약 봉투에서 ‘복용을 잊었을 때’를 확인하세요.**')
-        st.write('모르면 약국에 문의하세요.')
-        phone=st.text_input('문의할 약국·병원 전화번호',value=h['phone'],placeholder='예시) 02-123-4567',key='ask_phone_'+key)
+    if step=='unwell':
+        st.subheader('몸이 불편한가요?')
+        st.write('심한 호흡곤란·의식 저하는 119, 그 외 증상은 의료진에게 문의하세요.')
+        if st.button('확인했어요',use_container_width=True):advance('know')
+        return
+    if step=='uncertain':
+        st.subheader('먹었는지 먼저 확인하세요')
+        st.write('다시 먹기 전에 기록과 가족에게 확인하세요.')
+        if st.button('복용 기록 보기',use_container_width=True):history_dialog()
+        if st.button('아직 모르겠어요 · 저장',use_container_width=True):finish()
+        if st.button('안 먹은 것을 확인했어요',use_container_width=True):advance('know')
+        return
+    if step=='know':
+        st.subheader('놓쳤을 때 복용법을 아나요?')
+        if st.button('알고 있어요',use_container_width=True):advance('instruction')
+        if st.button('아직 모르겠어요',use_container_width=True):advance('help')
+        return
+    if step=='help':
+        st.subheader('약 봉투에 안내가 있나요?')
+        if st.button('있어요',use_container_width=True):advance('instruction')
+        if st.button('없어요 · 이해하기 어려워요',use_container_width=True):advance('contact')
+        return
+    if step=='contact':
+        st.subheader('약국에 복용법을 물어보세요')
+        st.write('확인 전 임의로 추가 복용하지 마세요.')
+        phone=st.text_input('약국·병원 전화번호',placeholder='예시) 02-123-4567',key='mq_phone')
         cleaned=re.sub(r'[\s()-]','',phone)
         if cleaned and re.fullmatch(r'\+?[0-9]{7,15}',cleaned):
-            st.link_button('📞 전화해서 확인하기','tel:'+cleaned,use_container_width=True)
-        elif cleaned:st.warning('전화번호를 확인하세요.')
-        with st.expander('👪 혼자 확인하기 어렵다면 가족에게 요청'):
-            last=rows('SELECT taken_at FROM fm_logs WHERE med_id=? ORDER BY taken_at DESC LIMIT 1',(m['id'],))
-            message=f"복용 확인을 도와주세요.\n{m['person']} / {m['name']} / {m['dose']}\n놓친 일정: {day} {slot}\n이유: {reason} {note}\n마지막 복용 기록: {last[0]['taken_at'] if last else '없음 (미복용 확정 아님)'}\n약사에게 놓친 회차의 대처법을 확인해 주세요."
-            st.text_area('복사해서 보내세요 · 자동 전송 아님',value=message,height=180,key='ask_family_'+key)
-    st.caption('주의: 임의로 두 회분을 함께 먹지 마세요.')
-    if st.button('저장하고 약국에 문의하기' if result=='확인 대기' else '약사 답변 저장',type='primary',use_container_width=True,key='save_branch_'+key):
-        if known=='알고 있어요' and (not detail.strip() or not source.strip()):
-            st.toast('위의 ‘안내받은 내용’과 ‘확인한 곳’을 입력해 주세요.',icon=':material/info:');return
-        ok,msg=save_missed(m['id'],day,slot,reason,note)
-        if not ok:st.warning(msg);return
-        ok,msg=save_followup(m['id'],day,slot,result,detail,source)
-        if not ok:st.warning(msg);return
-        if known=='알고 있어요':
-            with database(True) as conn:
-                execute(conn,"INSERT INTO fm_help VALUES (?,?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET guidance=excluded.guidance,source=excluded.source,updated=excluded.updated",(m['id'],detail.strip(),source.strip(),h['phone'],now().isoformat()))
-        st.session_state['missed_saved_'+key]=True
-        if result=='확인 대기':
-            st.session_state['missed_step_'+key]=3
-        else:
-            st.session_state['missed_confirmation_complete']=True
-        st.rerun()
-
+            st.link_button('전화하기','tel:'+cleaned,use_container_width=True)
+        if st.button('답변을 받았어요',use_container_width=True):advance('instruction')
+        if st.button('나중에 문의할게요 · 저장',use_container_width=True):finish()
+        return
+    if step=='instruction':
+        st.subheader('확인한 복용법을 적어주세요')
+        detail=st.text_input('안내 내용',key='mq_detail')
+        source=st.text_input('확인한 곳',placeholder='예시) 약 봉투 / 약사',key='mq_source')
+        if st.button('다음',type='primary',use_container_width=True):
+            if not detail.strip() or not source.strip():st.toast('안내 내용과 확인한 곳을 입력하세요.')
+            else:advance('result')
+        return
+    if step=='result':
+        st.subheader('어떻게 처리했나요?')
+        for i,(label,result) in enumerate([('아직 복용하지 않았어요','확인 대기'),('안내에 따라 건너뛰었어요','안내 확인 후 건너뜀'),('안내에 따라 복용했어요','안내 확인 후 복용 보고')]):
+            if st.button(label,key='mq_result_'+str(i),use_container_width=True):
+                finish(result,st.session_state.get('mq_detail',''),st.session_state.get('mq_source',''))
+        return
 
 
 def followup_history():
