@@ -930,7 +930,17 @@ def dashboard(person_id, elder):
     unread_count=len(unread)
     bell_border = '#b42318' if unread_count else '#abc7c0'
     bell_bg = '#fff0ec' if unread_count else '#ffffff'
-    st.markdown(f'<style>.st-key-notification_only button{{border:3px solid {bell_border}!important;background:{bell_bg}!important;box-shadow:none!important;animation:none!important;}}</style>',unsafe_allow_html=True)
+    st.markdown(f"""<style>
+    [data-testid="stAppViewContainer"] .st-key-today_tools .st-key-notification_only [data-testid="stButton"] button,
+    [data-testid="stAppViewContainer"] .st-key-today_tools .st-key-notification_only button{{
+      border:3px solid {bell_border}!important;background:{bell_bg}!important;
+      box-shadow:none!important;animation:none!important;}}
+    [data-testid="stAppViewContainer"] .st-key-today_tools .st-key-notification_only button *{{
+      color:{'#b42318' if unread_count else '#163047'}!important;
+      -webkit-text-fill-color:{'#b42318' if unread_count else '#163047'}!important;}}
+    .st-key-rail_missed button p{{font-size:13px!important;line-height:1.15!important;white-space:normal!important;}}
+    .st-key-rail_missed button{{flex-direction:column!important;gap:2px!important;min-height:66px!important;}}
+    </style>""",unsafe_allow_html=True)
     if st.session_state.pop('open_notices_'+person_id,False):
         dose_notifications(person_id,pname,len(done),len(slots))
     with st.container(key='today_tools'):
@@ -940,7 +950,7 @@ def dashboard(person_id, elder):
                     execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
                 st.session_state['open_notices_'+person_id]=True
                 st.rerun(scope='fragment')
-        if st.button('',icon=':material/alarm_off:',help='못 먹은 약',key='rail_missed'):
+        if st.button('못 먹음',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
             st.session_state.page='놓친 약 확인';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
             voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}",True)
