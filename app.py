@@ -497,6 +497,19 @@ def missed_history():
             st.rerun()
 
 
+def compact_page(items, key, size=4):
+    if len(items)<=size:return items
+    pages=(len(items)+size-1)//size
+    page=min(st.session_state.get(key,0),pages-1)
+    left,mid,right=st.columns([1,2,1])
+    if left.button('',icon=':material/chevron_left:',help='이전',key=key+'_prev',disabled=page==0):
+        st.session_state[key]=page-1;st.rerun()
+    mid.caption(f'{page+1} / {pages}')
+    if right.button('',icon=':material/chevron_right:',help='다음',key=key+'_next',disabled=page==pages-1):
+        st.session_state[key]=page+1;st.rerun()
+    return items[page*size:(page+1)*size]
+
+
 def home_screen(elder):
     st.markdown("""<style>
     .st-key-family_schedule_row [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important;gap:10px!important;align-items:stretch;}
@@ -693,7 +706,7 @@ def home_screen(elder):
         if st.button('＋ 약 등록',use_container_width=True):registration('medicine')
         meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE NOT EXISTS (SELECT 1 FROM fm_removed r WHERE r.med_id=m.id) ORDER BY m.expiry')
         if not meds:st.info('등록한 약이 없습니다.')
-        for m in meds:
+        for m in compact_page(meds,'cabinet_page',3):
             expired=m['expiry']<now().date().isoformat()
             with st.container(border=True):
                 photo,info,edit,delete=st.columns([2,5,1,1],gap='small')
@@ -720,7 +733,7 @@ def home_screen(elder):
         people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         if st.session_state.pop('family_removed_notice',False):
             st.toast('가족을 삭제했습니다.',icon=':material/check_circle:')
-        for person in people:
+        for person in compact_page(people,'family_list_page',4):
             with st.container(border=True):
                 info,action=st.columns([4,1],gap='small')
                 info.markdown('**'+safe(person['name'])+'**')
@@ -1146,40 +1159,38 @@ def dashboard(person_id, elder):
         st.toast(st.session_state.pop('dose_toast'),icon=':material/check_circle:')
     st.markdown('**오늘 시간표**')
     import math
-    per_page=9
+    per_page=3 if elder else 4
     total_pages=max(1,math.ceil(len(slots)/per_page))
     page_key='schedule_page_'+person_id
     current_page=min(st.session_state.get(page_key,0),total_pages-1)
     visible_slots=slots[current_page*per_page:(current_page+1)*per_page]
     st.markdown("""<style>
-    .st-key-dose_grid [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:7px!important;}
-    .st-key-dose_grid [data-testid="stColumn"]{flex:1 1 0!important;width:calc(33.333% - 5px)!important;min-width:0!important;}
-    .st-key-dose_grid [data-testid="stVerticalBlock"]{gap:7px!important;}
-    .st-key-dose_grid button{width:100%!important;height:112px!important;min-height:112px!important;padding:8px 5px!important;border-radius:15px!important;white-space:pre-line!important;}
-    .st-key-dose_grid button p{font-size:14px!important;line-height:1.45!important;white-space:pre-line!important;word-break:keep-all!important;overflow-wrap:anywhere!important;}
-    .st-key-dose_grid button[kind="primary"]{background:#e2f3e9!important;border:2px solid #238154!important;}
-    .st-key-dose_grid button[kind="primary"] p{color:#145c38!important;-webkit-text-fill-color:#145c38!important;}
-    @media(max-width:420px){.st-key-dose_grid button{height:104px!important;min-height:104px!important;}.st-key-dose_grid button p{font-size:13px!important;}}
+    .st-key-mobile_schedule [data-testid="stVerticalBlock"]{gap:8px!important;}
+    .st-key-mobile_schedule button{min-height:62px!important;height:auto!important;width:100%!important;
+      border-radius:14px!important;padding:12px 14px!important;justify-content:flex-start!important;}
+    .st-key-mobile_schedule button p{font-size:17px!important;line-height:1.4!important;text-align:left!important;overflow-wrap:anywhere!important;}
+    .st-key-mobile_schedule button[kind="primary"]{background:#e2f3e9!important;border:2px solid #238154!important;}
+    .st-key-mobile_schedule button[kind="primary"] p{color:#145c38!important;-webkit-text-fill-color:#145c38!important;}
+    @media(max-width:480px){.block-container{padding-top:0.5rem!important;padding-bottom:85px!important;}
+      [data-testid="stHeadingWithActionElements"] h3{font-size:21px!important;}
+      .st-key-mobile_schedule button p{font-size:16px!important;}}
     </style>""",unsafe_allow_html=True)
-    with st.container(key='dose_grid'):
-        for row in range(3):
-            cells=st.columns(3,gap='small')
-            for col,cell in enumerate(cells):
-                index=row*3+col
-                if index>=len(visible_slots):continue
-                entry=visible_slots[index]
-                identity=(entry['m']['id'],entry['time'])
-                action=follow_map.get(identity,'')
-                label='✓ 완료' if entry['done'] else '↷ 건너뜀' if action=='안내 확인 후 건너뜀' else '! 확인 중' if identity in missed_keys else '◷ 예정' if entry['scheduled']>current else '? 미확인'
-                text=entry['time']+'\n'+entry['m']['name']+'\n'+label
-                if cell.button(text,key='dose_open_'+entry['m']['id']+'_'+entry['time'],help=entry['m']['dose'],use_container_width=True,type='primary' if entry['done'] else 'secondary'):
-                    dose_action_dialog(dict(entry['m']),pname,today,entry['time'],entry['done'])
+    with st.container(key='mobile_schedule'):
+        for entry in visible_slots:
+            identity=(entry['m']['id'],entry['time'])
+            action=follow_map.get(identity,'')
+            done=entry['done']
+            icon=':material/check_circle:' if done else ':material/skip_next:' if action=='안내 확인 후 건너뜀' else ':material/error_outline:' if identity in missed_keys else ':material/schedule:' if entry['scheduled']>current else ':material/help_outline:'
+            label='복용 완료' if done else '건너뜀' if action=='안내 확인 후 건너뜀' else '확인 필요'
+            text=entry['time']+'   '+entry['m']['name']
+            if st.button(text,icon=icon,key='dose_open_'+entry['m']['id']+'_'+entry['time'],help=label+' · '+entry['m']['dose'],use_container_width=True,type='primary' if done else 'secondary'):
+                dose_action_dialog(dict(entry['m']),pname,today,entry['time'],done)
     if total_pages>1:
         prev,center,nxt=st.columns([1,2,1])
-        if prev.button('이전 9개',disabled=current_page==0,key='schedule_prev'):
+        if prev.button('',icon=':material/chevron_left:',help='이전 일정',disabled=current_page==0,key='schedule_prev'):
             st.session_state[page_key]=current_page-1;st.rerun(scope='fragment')
         center.caption(f'{current_page+1} / {total_pages}')
-        if nxt.button('다음 9개',disabled=current_page==total_pages-1,key='schedule_next'):
+        if nxt.button('',icon=':material/chevron_right:',help='다음 일정',disabled=current_page==total_pages-1,key='schedule_next'):
             st.session_state[page_key]=current_page+1;st.rerun(scope='fragment')
 
     with database(True) as conn:
