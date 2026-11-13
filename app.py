@@ -712,7 +712,7 @@ def home_screen(elder):
         intake_table()
         if st.button('✅ 먹은 기록',use_container_width=True):history_dialog()
         if st.button('✏️ 못 먹은 사유 적기',key='reason_from_history',use_container_width=True):
-            st.session_state.page='놓친 약 확인';st.rerun()
+            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
         with st.expander('🕒 못 먹은 기록'):followup_history()
     else:
         st.subheader('가족')
@@ -782,6 +782,12 @@ def missed_flow(elder):
     div[class*="st-key-touch_"] button p{font-size:20px!important;line-height:1.4!important;white-space:normal!important;}
     </style>""",unsafe_allow_html=True)
     st.subheader('못 먹은 약')
+    if st.session_state.get('missed_confirmation_complete'):
+        st.success('확인을 완료했어요')
+        if st.button('오늘로 돌아가기',key='finished_to_today',use_container_width=True):
+            st.session_state.pop('missed_confirmation_complete',None)
+            st.session_state.page='오늘 약 먹기';st.rerun()
+        return
     options=unresolved_slots()
     if not options:
         st.success('확인할 약이 없습니다.');return
@@ -848,7 +854,7 @@ def missed_flow(elder):
     st.caption('주의: 임의로 두 회분을 함께 먹지 마세요.')
     if st.button('저장하고 약국에 문의하기' if result=='확인 대기' else '약사 답변 저장',type='primary',use_container_width=True,key='save_branch_'+key):
         if known=='알고 있어요' and (not detail.strip() or not source.strip()):
-            st.warning('확인한 지침과 출처를 입력하세요.');return
+            st.toast('위의 ‘안내받은 내용’과 ‘확인한 곳’을 입력해 주세요.',icon=':material/info:');return
         ok,msg=save_missed(m['id'],day,slot,reason,note)
         if not ok:st.warning(msg);return
         ok,msg=save_followup(m['id'],day,slot,result,detail,source)
@@ -860,7 +866,7 @@ def missed_flow(elder):
         if result=='확인 대기':
             st.session_state['missed_step_'+key]=3
         else:
-            st.session_state.page='기록'
+            st.session_state['missed_confirmation_complete']=True
         st.rerun()
 
 
@@ -877,7 +883,7 @@ def followup_history():
             with database(True) as conn:
                 execute(conn,"UPDATE fm_followup SET action='확인 대기' WHERE id=?",(r['id'],))
                 execute(conn,'''INSERT INTO fm_missed VALUES (?,?,?,?,?,?,?) ON CONFLICT(med_id,day,slot) DO NOTHING''',(str(uuid.uuid4()),r['med_id'],r['day'],r['slot'],'사정상 못 먹었어요','후속 조치 재확인',now().isoformat()))
-            st.session_state.page='놓친 약 확인';st.rerun()
+            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
     with st.expander('이전에 남긴 못 먹은 사유'):
         missed_history()
 
@@ -924,22 +930,23 @@ def intake_table():
             output.append({'가족':m['person'],'약':m['name'],'예정':slot,'복용 시각':actual,'상태':status,'사유':reason})
     if output:
         output.sort(key=lambda r:(r['예정'],r['가족'],r['약']))
+        symbols={'복용':'🟢 ✓','못 먹음':'🔴 ×','건너뜀':'⚪ ↷','확인 필요':'🟠 ?','예정':'🔵 ◷','시각 미확인':'🟠 ?'}
+        for row in output:row['상태']=symbols.get(row['상태'],'🟠 ?')
+        st.caption('✓ 복용  ·  × 못 먹음  ·  ↷ 건너뜀  ·  ? 확인 필요  ·  ◷ 예정')
         details=st.checkbox('사유 보기',key='table_show_reason')
         view=output if details else [{k:v for k,v in row.items() if k!='사유'} for row in output]
         st.dataframe(view,hide_index=True,use_container_width=True)
     else:st.info('이 날짜에 남긴 기록이 없습니다.')
-    with st.expander('표 읽는 방법'):
-        st.write('확인 필요: 복용 여부 미확인. 지난 날짜는 저장된 기록만 표시합니다. 오늘 예정은 현재 등록 일정 기준입니다.')
-
-
 @st.dialog('🔔 복용 알림', width='small')
 def dose_notifications(person_id, person_name, completed, total):
     st.markdown(f'**👤 {safe(person_name)}**')
     notices=rows('SELECT * FROM fm_notices WHERE person_id=? ORDER BY day DESC,slot DESC LIMIT 100',(person_id,))
     for n in notices:
         with st.container(border=True):
-            st.markdown(f"**💊 {safe(n['medicine'])} 복용 시간 안내**")
-            st.write(f"{n['day']} {n['slot']} 예정 · 복용 여부를 확인해 주세요.")
+            st.markdown(f"**💊 {safe(n['medicine'])} 복용 기록이 없어요**")
+            st.write(f"{n['day']} {n['slot']} 예정")
+            st.write('먹었다면 오늘 → 먹었어요, 못 먹었다면 오른쪽 알약 빗금 아이콘을 누르세요.')
+            st.caption('기록 확인 알림입니다. 지금 복용하라는 뜻은 아닙니다.')
 
     if not notices:st.info('알림이 없습니다.')
 
@@ -1006,7 +1013,11 @@ def dashboard(person_id, elder):
     st.write(f"💊 {m['dose']} · {state}")
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
+        recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
+        recorded_outcomes.update((r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_followup WHERE day=?',(today,)))
         for entry in due:
+            if (entry['m']['id'],entry['time']) in recorded_outcomes:
+                continue
             notice_id=f"{person_id}|{today}|{entry['m']['id']}|{entry['time']}"
             execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
@@ -1033,7 +1044,7 @@ def dashboard(person_id, elder):
                 st.session_state['open_notices_'+person_id]=True
                 st.rerun(scope='fragment')
         if st.button('',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
-            st.session_state.page='놓친 약 확인';st.rerun()
+            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
             voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}")
         if st.button('',icon=':material/history:',help='복용 기록',key='rail_history'):history_dialog()
