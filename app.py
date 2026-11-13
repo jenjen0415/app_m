@@ -991,7 +991,7 @@ def dashboard(person_id, elder):
     with st.container(key='family_schedule_row'):
         family_col,schedule_col=st.columns([1,3],gap='small')
     with family_col:
-        person_id=st.selectbox('가족',list(names),format_func=lambda k:'👤 '+names[k],key='today_family_compact',label_visibility='collapsed')
+        person_id=st.selectbox('가족',list(names),format_func=lambda k:names[k],key='today_family_compact',label_visibility='collapsed')
     current = now()
     today = current.date().isoformat()
     meds = rows('SELECT * FROM fm_meds WHERE person_id=? AND active=1 ORDER BY name', (person_id,))
@@ -1027,7 +1027,7 @@ def dashboard(person_id, elder):
         st.session_state[choice_key]=next((k for k,x in choice_map.items() if not x['done']),choice_keys[0])
     with schedule_col:
         selected_key=st.selectbox('복용할 약 · 기록',choice_keys,
-            format_func=lambda k:f"{'✅ 먹음' if choice_map[k]['done'] else '🕒 예정'} · {choice_map[k]['time']} · {choice_map[k]['m']['name']}",
+            format_func=lambda k:f"{'완료' if choice_map[k]['done'] else '예정'} · {choice_map[k]['time']} · {choice_map[k]['m']['name']}",
             key=choice_key,label_visibility='collapsed')
     selected=choice_map[selected_key]
     m, slot = selected['m'], selected['time']
@@ -1036,7 +1036,31 @@ def dashboard(person_id, elder):
     early=selected['scheduled']>current
     state='복용 완료' if selected['done'] else '유효기간 경과' if expired_selected else '예정' if early else '확인 필요'
     pname=person_name[0]['name'] if person_name else '가족'
-    st.write(f"💊 {m['dose']} · {state}")
+    completed_slots=sum(x['done'] for x in slots)
+    progress=round(100*completed_slots/len(slots)) if slots else 0
+    st.markdown(f"""<style>
+    .dose-focus{{background:#fff;border:1px solid #d4e3df;border-radius:24px;
+      padding:22px 24px;margin:12px 0 18px;box-shadow:0 8px 24px #16304708;color:#163047;}}
+    .dose-focus .dose-top{{display:flex;justify-content:space-between;align-items:center;gap:12px;}}
+    .dose-focus .dose-person{{font-size:16px;font-weight:700;color:#47635d;}}
+    .dose-focus .dose-state{{font-size:14px;font-weight:700;background:#eef4f1;color:#315d50;padding:5px 10px;border-radius:99px;}}
+    .dose-focus .dose-time{{font-size:46px;font-weight:800;line-height:1.15;letter-spacing:-2px;margin-top:18px;color:#123e36;}}
+    .dose-focus .dose-name{{font-size:26px;font-weight:800;line-height:1.4;margin-top:8px;overflow-wrap:anywhere;color:#163047;}}
+    .dose-focus .dose-amount{{font-size:18px;margin-top:6px;line-height:1.5;color:#38544e;}}
+    .dose-focus .dose-footer{{border-top:1px solid #e4ece8;margin-top:20px;padding-top:14px;display:flex;justify-content:space-between;font-size:14px;color:#47635d;}}
+    .dose-focus .dose-track{{height:6px;border-radius:6px;background:#e5eeea;margin-top:10px;overflow:hidden;}}
+    .dose-focus .dose-fill{{height:100%;width:{progress}%;background:#21745b;border-radius:6px;}}
+    .st-key-dose_confirm button{{background:#176f57!important;border-color:#176f57!important;border-radius:16px!important;min-height:58px!important;}}
+    .st-key-dose_confirm button p,.st-key-dose_confirm button span{{color:#fff!important;-webkit-text-fill-color:#fff!important;}}
+    .st-key-dose_exception button{{border-radius:16px!important;min-height:52px!important;background:#fff!important;}}
+    @media(max-width:480px){{.dose-focus{{padding:18px;}}.dose-focus .dose-time{{font-size:40px;}}}}
+</style><section class="dose-focus" aria-label="선택한 복용 일정">
+    <div class="dose-top"><span class="dose-person">{safe(pname)}의 복용 일정</span><span class="dose-state">{safe(state)}</span></div>
+    <div class="dose-time">{safe(slot)}</div><div class="dose-name">{safe(m['name'])}</div>
+    <div class="dose-amount">{safe(m['dose'])}</div>
+    <div class="dose-footer"><span>오늘 기록한 일정</span><strong>{completed_slots} / {len(slots)}</strong></div>
+    <div class="dose-track" role="progressbar" aria-valuemin="0" aria-valuemax="{len(slots)}" aria-valuenow="{completed_slots}"><div class="dose-fill"></div></div>
+    </section>""",unsafe_allow_html=True)
     with database(True) as conn:
         execute(conn,"CREATE TABLE IF NOT EXISTS fm_notices (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, day TEXT NOT NULL, slot TEXT NOT NULL, medicine TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0)")
         recorded_outcomes={(r['med_id'],r['slot']) for r in rows('SELECT med_id,slot FROM fm_missed WHERE day=?',(today,))}
@@ -1091,13 +1115,13 @@ def dashboard(person_id, elder):
     if resolved:
         st.info('후속 조치가 기록된 회차입니다. 수정은 기록 → 후속 조치 → 다시 확인하기에서 진행하세요.')
     disabled = resolved or selected['done'] or expired_selected or not early_confirmed or (same_ingredient and not confirmed)
-    if st.button('✅ 먹었어요' if not selected['done'] else '✅ 이미 기록했어요', type='primary', disabled=disabled, use_container_width=True):
+    if st.button('복용 완료' if not selected['done'] else '기록 완료', icon=':material/check:',key='dose_confirm',type='primary', disabled=disabled, use_container_width=True):
         result = take(m['id'], today, slot, confirmed)
         st.session_state.flash = result
         st.rerun(scope='fragment')
     if not selected['done'] and not early:
 
-        if st.button('못 먹었거나, 먹었는지 모르겠어요',use_container_width=True):
+        if st.button('못 먹음 · 복용 여부 모름',icon=':material/pill_off:',key='dose_exception',use_container_width=True):
             st.session_state.page='놓친 약 확인'
             st.rerun()
     if elder:
