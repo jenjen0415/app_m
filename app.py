@@ -856,7 +856,7 @@ def dose_notifications(person_id, person_name, completed, total):
         with st.container(border=True):
             st.markdown(f"**💊 {safe(n['medicine'])} 복용 시간 안내**")
             st.write(f"{n['day']} {n['slot']} 예정 · 복용 여부를 확인해 주세요.")
-            st.caption('읽음' if n['is_read'] else '안읽음')
+
     if not notices:st.info('알림이 없습니다.')
 
 
