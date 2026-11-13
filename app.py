@@ -309,12 +309,13 @@ def history_dialog():
             st.markdown(f"**🕒 {actual} · {html.escape(r['name'])}**")
             st.caption(f"{r['person']} · 예정 {r['slot']} · 복용 기록됨")
     logs=shown
-    selected = st.selectbox('잘못 체크한 기록', logs, format_func=lambda r: f"{r['person']} · {r['name']} · {r['slot']}")
-    checked = st.checkbox('실제로 복용하지 않은 오기록만 취소합니다')
-    st.caption('실제로 복용한 기록은 지우지 마세요. 취소하면 중복 방지 판단에서도 제외됩니다.')
-    if st.button('오기록 취소', disabled=not checked, use_container_width=True):
+    by_id={r['id']:r for r in logs}
+    selected=st.multiselect('취소할 오기록 선택',list(by_id),format_func=lambda k:f"{by_id[k]['person']} · {by_id[k]['name']} · {by_id[k]['slot']}")
+    st.warning('실제로 복용하지 않았는데 잘못 체크한 기록만 취소하세요. 실제 복용 기록을 지우면 중복 복용 방지에 영향을 줍니다.')
+    checked=st.checkbox('선택한 항목은 실제로 복용하지 않은 오기록입니다')
+    if st.button('선택한 오기록 취소',disabled=not checked or not selected,use_container_width=True):
         with database(True) as conn:
-            execute(conn, 'DELETE FROM fm_logs WHERE id=?', (selected['id'],))
+            for record_id in selected:execute(conn,'DELETE FROM fm_logs WHERE id=?',(record_id,))
         st.rerun()
 
 
@@ -497,17 +498,8 @@ def missed_history():
             st.rerun()
 
 
-def compact_page(items, key, size=4):
-    if len(items)<=size:return items
-    pages=(len(items)+size-1)//size
-    page=min(st.session_state.get(key,0),pages-1)
-    left,mid,right=st.columns([1,2,1])
-    if left.button('',icon=':material/chevron_left:',help='이전',key=key+'_prev',disabled=page==0):
-        st.session_state[key]=page-1;st.rerun()
-    mid.caption(f'{page+1} / {pages}')
-    if right.button('',icon=':material/chevron_right:',help='다음',key=key+'_next',disabled=page==pages-1):
-        st.session_state[key]=page+1;st.rerun()
-    return items[page*size:(page+1)*size]
+def compact_page(items,key,size=4):
+    return items
 
 
 def home_screen(elder):
@@ -697,13 +689,15 @@ def home_screen(elder):
             st.info('약통 → 가족 관리에서 가족을 등록한 뒤 약을 등록하세요.')
         else:
             dashboard(people[0]['id'],elder)
+    elif page=='미복용 목록':
+        missed_overview()
     elif page=='놓친 약 확인':
         if st.button('← 오늘',key='back_today'):
             st.session_state.page='오늘 약 먹기';st.rerun()
         missed_flow(elder)
     elif page=='약 보관함':
         st.subheader('약통')
-        if st.button('가족 관리',icon=':material/group:',key='family_management'):
+        if st.button('가족 등록 · 삭제',icon=':material/group_add:',key='family_management'):
             registration('family')
         if st.button('＋ 약 등록',use_container_width=True):registration('medicine')
         meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE NOT EXISTS (SELECT 1 FROM fm_removed r WHERE r.med_id=m.id) ORDER BY m.expiry')
@@ -725,9 +719,9 @@ def home_screen(elder):
     elif page=='기록':
         st.subheader('복용 현황')
         intake_table()
-        if st.button('✅ 먹은 기록',use_container_width=True):history_dialog()
-        if st.button('✏️ 못 먹은 사유 적기',key='reason_from_history',use_container_width=True):
-            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
+        if st.button('먹은 기록 · 오기록 취소',icon=':material/history:',use_container_width=True):history_dialog()
+        if st.button('못 먹은 약 확인',icon=':material/pill_off:',key='reason_from_history',use_container_width=True):
+            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='미복용 목록';st.rerun()
         if st.button('못 먹은 기록',icon=':material/history:',use_container_width=True):missed_records_dialog()
     else:
         st.subheader('가족')
@@ -791,6 +785,19 @@ def touch_choice(label, options, key):
                 st.session_state[key]=option
                 st.rerun()
     return st.session_state[key]
+
+
+def missed_overview():
+    st.subheader('못 먹은 약 · 확인 필요')
+    items=unresolved_slots()
+    if not items:st.info('확인할 약이 없습니다.')
+    for i,item in enumerate(items):
+        m=item['m']
+        if st.button(f"{m['person']} · {m['name']} · {item['slot']}",key='miss_overview_'+str(i),use_container_width=True,icon=':material/pill_off:'):
+            for key in list(st.session_state):
+                if key.startswith('mq_'):del st.session_state[key]
+            st.session_state['mq_target']=item;st.session_state['mq_step']='reason'
+            st.session_state.page='놓친 약 확인';st.rerun()
 
 
 def missed_flow(elder):
@@ -978,7 +985,7 @@ def followup_history():
             with database(True) as conn:
                 execute(conn,"UPDATE fm_followup SET action='확인 대기' WHERE id=?",(r['id'],))
                 execute(conn,'''INSERT INTO fm_missed VALUES (?,?,?,?,?,?,?) ON CONFLICT(med_id,day,slot) DO NOTHING''',(str(uuid.uuid4()),r['med_id'],r['day'],r['slot'],'사정상 못 먹었어요','후속 조치 재확인',now().isoformat()))
-            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
+            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='미복용 목록';st.rerun()
     st.markdown('**못 먹은 사유**')
     missed_history()
 
@@ -1262,7 +1269,7 @@ def dashboard(person_id, elder):
     st.markdown("""<style>
     .st-key-medicine_tiles [data-testid="stVerticalBlock"]{gap:6px!important;}
     .st-key-medicine_tiles button{min-height:48px!important;padding:7px!important;}
-    .st-key-medicine_tiles button p{font-size:14px!important;line-height:1.35!important;}
+    .st-key-medicine_tiles button p{font-size:19px!important;font-weight:800!important;color:#153d32!important;line-height:1.4!important;}
     </style>""",unsafe_allow_html=True)
     with st.container(key='medicine_tiles'):
         for offset in range(0,len(groups),2):
@@ -1316,9 +1323,9 @@ def dashboard(person_id, elder):
                 st.session_state['open_notices_'+person_id]=True
                 st.rerun(scope='fragment')
         if st.button('',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
-            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='놓친 약 확인';st.rerun()
+            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='미복용 목록';st.rerun()
         if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
-            voice_dialog(f"{pname}, {slot}, {m['name']}, {m['dose']}")
+            voice_dialog(pname+'님의 오늘 일정. '+'. '.join(e['time']+' '+e['m']['name']+' '+e['m']['dose']+(' 복용 기록 있음' if e['done'] else ' 복용 기록 없음') for e in slots))
         if st.button('',icon=':material/history:',help='복용 기록',key='rail_history'):history_dialog()
 if __name__ == '__main__':
     try:
