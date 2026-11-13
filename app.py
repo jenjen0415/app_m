@@ -686,15 +686,15 @@ def home_screen(elder):
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
     with st.container(key='bottom_nav'):
-        cols=st.columns(4)
-        for col,icon,label,target in zip(cols,[':material/medication:',':material/medical_services:',':material/history:',':material/group:'],['오늘','약통','기록','가족'],['오늘 약 먹기','약 보관함','기록','가족']):
+        cols=st.columns(3)
+        for col,icon,label,target in zip(cols,[':material/medication:',':material/medical_services:',':material/history:'],['오늘','약통','기록'],['오늘 약 먹기','약 보관함','기록']):
             if col.button(label if elder else '',icon=icon,help=label,key='nav_'+label,type='primary' if active==label else 'secondary',use_container_width=True):
                 st.session_state.page=target;st.rerun()
     if page=='오늘 약 먹기':
         st.subheader('오늘의 복용')
         people=rows('SELECT * FROM fm_people WHERE id NOT IN (SELECT person_id FROM fm_hidden_people) ORDER BY name')
         if not people:
-            st.info('아래 가족 메뉴에서 가족을 등록한 뒤, 약통에서 약을 등록하세요.')
+            st.info('약통 → 가족 관리에서 가족을 등록한 뒤 약을 등록하세요.')
         else:
             dashboard(people[0]['id'],elder)
     elif page=='놓친 약 확인':
@@ -703,6 +703,8 @@ def home_screen(elder):
         missed_flow(elder)
     elif page=='약 보관함':
         st.subheader('약통')
+        if st.button('가족 관리',icon=':material/group:',key='family_management'):
+            registration('family')
         if st.button('＋ 약 등록',use_container_width=True):registration('medicine')
         meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE NOT EXISTS (SELECT 1 FROM fm_removed r WHERE r.med_id=m.id) ORDER BY m.expiry')
         if not meds:st.info('등록한 약이 없습니다.')
@@ -880,6 +882,12 @@ def missed_flow(elder):
         reason=st.session_state.get('mq_reason','깜빡했어요')
         target=st.session_state['mq_target'];med=target['m']
         st.subheader('집에서 먼저 할 일')
+        scheduled=datetime.combine(date.fromisoformat(target['day']),datetime.strptime(target['slot'],'%H:%M').time(),TZ)
+        elapsed=max(0,int((now()-scheduled).total_seconds()/60))
+        st.write(f"예정 시각 {target['slot']} · {elapsed//60}시간 {elapsed%60}분 경과")
+        upcoming=[datetime.combine(now().date()+timedelta(days=d),datetime.strptime(t,'%H:%M').time(),TZ) for d in (0,1) for t in json.loads(med['times'])]
+        future=[t for t in upcoming if t>now()]
+        if future:st.write('다음 등록 시각 '+min(future).strftime('%m/%d %H:%M'))
         if reason=='약이 없어요':
             st.write('1. 약 봉투·보관함에서 남은 수량을 확인하세요.')
             st.write('2. 가족에게 같은 제품·함량의 내 약이 남아 있는지 찾아달라고 부탁하세요. 다른 사람의 처방약은 나눠 먹지 마세요.')
@@ -900,6 +908,8 @@ def missed_flow(elder):
         guides=rows('SELECT guidance,source FROM fm_help WHERE med_id=?',(med['id'],))
         if guides and guides[0]['guidance']:
             st.info(guides[0]['guidance']+' · '+guides[0]['source'])
+        st.caption('근거: NHS Specialist Pharmacy Service, Advising on missed or delayed doses of medicines (2025-03-04). 약별 설명서를 우선하며 두 배 보충은 피합니다. 인슐린·항응고제·항경련제·파킨슨병 약·주 1회 메토트렉세이트 등은 별도 지침이 필요합니다.')
+        st.link_button('전문기관 근거 보기','https://sps.nhs.uk/articles/advising-on-missed-or-delayed-doses-of-medicines/')
         if st.button('복용법 확인하기',type='primary',use_container_width=True):advance('know')
         return
     if step=='know':
@@ -980,6 +990,7 @@ def medicine_photo(med_id, name):
     st.markdown('**'+safe(name)+'**')
     current=rows('SELECT image_b64 FROM fm_photos WHERE med_id=?',(med_id,))
     if current:
+        st.caption('사진을 바꾸려면 아래에서 다시 촬영하거나 다른 사진을 선택한 뒤 저장하세요.')
         st.image(base64.b64decode(current[0]['image_b64']),use_container_width=True)
     st.caption('모양 확인용 사진입니다. 사진만으로 약 종류·복용법을 판별하지 않습니다.')
     mode=st.segmented_control('사진 추가 방법',['촬영','앨범'],default='촬영',key='photo_mode_'+med_id)
@@ -1110,7 +1121,11 @@ def medicine_schedules_dialog(med,person,day,schedules):
             if slot in done_slots:continue
             eat,miss=st.columns(2)
             if eat.button('먹었어요',key='schedule_eat_'+med['id']+slot,use_container_width=True):
-                st.session_state['schedule_confirm_'+med['id']]=slot
+                ok,msg=take(med['id'],day,slot,False)
+                if ok:
+                    st.session_state['dose_toast']=f"{person} · {med['name']} {slot} 복용을 기록했습니다."
+                    st.rerun()
+                else:st.warning(msg)
             if miss.button('못 먹었어요',key='schedule_miss_'+med['id']+slot,use_container_width=True):
                 for k in list(st.session_state):
                     if k.startswith('mq_'):del st.session_state[k]
@@ -1118,17 +1133,6 @@ def medicine_schedules_dialog(med,person,day,schedules):
                 st.session_state['mq_target']={'m':chosen,'day':day,'slot':slot}
                 st.session_state['mq_step']='reason';st.session_state['mq_back_stack']=[]
                 st.session_state.page='놓친 약 확인';st.rerun()
-            if st.session_state.get('schedule_confirm_'+med['id'])==slot:
-                early=datetime.combine(date.fromisoformat(day),datetime.strptime(slot,'%H:%M').time(),TZ)>now()
-                if early:st.warning('예정 시각 전입니다. 처방 시각과 실제 복용 여부를 확인하세요.')
-                checked=st.checkbox('이 회차를 실제로 먹었어요',key='actual_'+med['id']+slot)
-                same=st.checkbox('동일 성분 경고가 있으면 확인했어요',key='same_'+med['id']+slot)
-                if st.button('복용 기록 저장',key='schedule_save_'+med['id']+slot,type='primary',use_container_width=True,disabled=not checked):
-                    ok,msg=take(med['id'],day,slot,same)
-                    if ok:
-                        st.session_state['dose_toast']=f"{person} · {med['name']} {slot} 복용을 기록했습니다."
-                        st.session_state.pop('schedule_confirm_'+med['id'],None);st.rerun()
-                    else:st.warning(msg)
 
 
 @st.dialog('복용 확인',width='small')
