@@ -456,8 +456,8 @@ def history_dialog():
     by_id={r['id']:r for r in logs}
     selected=st.multiselect('잘못 입력한 복용 기록 선택',list(by_id),format_func=lambda k:f"{by_id[k]['person']} · {by_id[k]['name']} · {by_id[k]['slot']}")
     st.warning('실제로 복용하지 않았는데 잘못 체크한 기록만 취소하세요. 실제 복용 기록을 지우면 중복 복용 방지에 영향을 줍니다.')
-    checked=st.checkbox('선택한 항목은 실제로 복용하지 않은 오기록입니다')
-    if st.button('선택한 오기록 취소',disabled=not checked or not selected,use_container_width=True):
+    checked=st.checkbox('약을 먹지 않았는데 ‘먹었어요’로 잘못 입력한 기록입니다')
+    if st.button('잘못 입력한 기록 삭제',disabled=not checked or not selected,use_container_width=True):
         with database(True) as conn:
             for record_id in selected:execute(conn,'DELETE FROM fm_logs WHERE id=?',(record_id,))
         st.rerun()
@@ -537,6 +537,8 @@ def main():
        header layer from intercepting taps on the first widget. */
     [data-testid="stHeader"]{display:none!important;}
     [data-testid="stToolbar"]{display:none!important;}
+    [data-testid="stSegmentedControl"] button,[data-testid="stNumberInput"] input,[data-testid="stNumberInput"] button{background:#fff!important;color:#163047!important;-webkit-text-fill-color:#163047!important;}
+    [data-testid="stSegmentedControl"] button[aria-pressed="true"]{background:#dceee7!important;color:#163047!important;}
     .app-heading{font-size:1.55rem;font-weight:800;line-height:1.45;
         margin:0;padding:0;overflow-wrap:anywhere;color:var(--text-color);}
     .app-notice{font-size:0.82rem;line-height:1.6;margin:6px 0 0;
@@ -1451,6 +1453,16 @@ def dose_notifications(person_id, person_name, completed, total):
 
 @st.dialog('약 복용 확인',width='small')
 def medicine_schedules_dialog(med,person,day,schedules):
+    advice_key='advice_view_'+med['id']+'_'+day
+    selected_advice=st.session_state.get(advice_key)
+    if selected_advice:
+        st.subheader(med['name']+' · 대처법')
+        st.write(selected_advice['slot']+' · '+selected_advice['reason'])
+        render_action_steps(selected_advice['guidance'])
+        if st.button('복용 기록으로 돌아가기',key='back_'+advice_key,use_container_width=True):
+            st.session_state.pop(advice_key,None);st.rerun()
+        return
+    st.markdown('<style>[data-testid="stSegmentedControl"] button,[data-testid="stNumberInput"] input,[data-testid="stNumberInput"] button{background:#fff!important;color:#163047!important;-webkit-text-fill-color:#163047!important;}[data-testid="stSegmentedControl"] button[aria-pressed="true"]{background:#dceee7!important;color:#163047!important;}</style>',unsafe_allow_html=True)
     st.subheader(med['name'])
     st.write(person+' · '+med['dose'])
     st.markdown('**오늘 복용 시각**')
@@ -1467,9 +1479,9 @@ def medicine_schedules_dialog(med,person,day,schedules):
             if slot in done_slots:continue
             if missed:
                 st.write('사유: '+missed['reason'])
-                if follow and follow['guidance']:render_action_steps(follow['guidance'])
-                if st.button('먹었는데 기록을 잘못 남겼어요',key='correct_missed_'+med['id']+slot,use_container_width=True):
-                    st.session_state.page='미복용 목록';st.rerun()
+                if follow and follow['guidance']:
+                    if st.button('대처법 보기',key='advice_'+med['id']+slot,use_container_width=True):
+                        st.session_state[advice_key]=dict(slot=slot,reason=missed['reason'],guidance=follow['guidance']);st.rerun()
                 continue
             eat,miss=st.columns(2)
             if eat.button('먹었어요',key='schedule_eat_'+med['id']+slot,use_container_width=True):
@@ -1669,17 +1681,8 @@ def dashboard(person_id, elder):
     if st.session_state.pop('open_notices_'+person_id,False):
         dose_notifications(person_id,pname,len(done),len(slots))
     with st.container(key='today_tools'):
-        with st.container(key='notification_only'):
-            if st.button(str(unread_count) if unread_count else '',icon=':material/notifications_active:' if unread_count else ':material/notifications:',help=f'안 읽은 알림 {unread_count}건',key='rail_notifications'):
-                with database(True) as conn:
-                    execute(conn,'SELECT 1')
-                st.session_state['open_notices_'+person_id]=True
-                st.rerun(scope='fragment')
-        if st.button('',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
-            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='미복용 목록';st.rerun()
-        if st.button('',icon=':material/volume_up:',help='음성 안내',key='rail_voice'):
+        if st.button('음성 안내',icon=':material/volume_up:',key='today_voice_read'):
             voice_dialog(pname+'님의 오늘 일정. '+'. '.join(e['time']+' '+e['m']['name']+' '+e['m']['dose']+(' 복용 기록 있음' if e['done'] else ' 복용 기록 없음') for e in slots))
-        if st.button('',icon=':material/history:',help='복용 기록',key='rail_history'):history_dialog()
 if __name__ == '__main__':
     try:
         main()
