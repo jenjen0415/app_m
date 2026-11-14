@@ -822,8 +822,9 @@ def missed_flow(elder):
     def finish(result='확인 대기', detail='', source=''):
         target=st.session_state['mq_target']
         m=target['m']; day=target['day']; slot=target['slot']
-        ok,msg=save_missed(m['id'],day,slot,st.session_state.get('mq_reason','깜빡했어요'),'')
-        if not ok:st.error(msg);return
+        if st.session_state.get('mq_reason')!='먹었는지 모르겠어요':
+            ok,msg=save_missed(m['id'],day,slot,st.session_state.get('mq_reason','깜빡했어요'),'')
+            if not ok:st.error(msg);return
         ok,msg=save_followup(m['id'],day,slot,result,detail,source)
         if not ok:st.error(msg);return
         if result!='확인 대기':
@@ -833,12 +834,16 @@ def missed_flow(elder):
     step=st.session_state.get('mq_step','select')
     if step=='done':
         st.subheader('저장했어요')
-        st.write('약국 문의가 남아 있으면 알림에서 계속 확인할 수 있어요.')
+
         if st.button('확인',type='primary',use_container_width=True,key='mq_done'):
             for k in list(st.session_state):
                 if k.startswith('mq_'):del st.session_state[k]
             st.session_state.page='오늘 약 먹기';st.rerun()
         return
+    if step not in ('select','done') and st.session_state.get('mq_target'):
+        target=st.session_state['mq_target']
+        st.subheader(target['m']['name'])
+        st.write(f"{target['m']['person']} · {target['day']} · {target['slot']}에 먹을 약")
     if step!='select' and st.session_state.get('mq_back_stack'):
         if st.button('이전 단계',icon=':material/arrow_back:',key='mq_previous'):
             st.session_state['mq_step']=st.session_state['mq_back_stack'].pop()
@@ -858,49 +863,30 @@ def missed_flow(elder):
                 st.session_state['mq_target']=x;advance('reason')
         return
     if step=='reason':
-        st.subheader('왜 못 먹었나요?')
-        for i,label in enumerate(['깜빡했어요','약이 없어요','몸이 불편해요','먹었는지 모르겠어요','다른 이유']):
+        st.subheader('이 약을 못 먹은 이유는 무엇인가요?')
+        choices=[('먹는 걸 깜빡했어요','깜빡했어요','miss_count'),
+                 ('약이 다 떨어졌어요','약이 없어요','miss_count'),
+                 ('몸이 불편해서 못 먹었어요','몸이 불편해요','current_symptom'),
+                 ('먹었는지 기억이 안 나요','먹었는지 모르겠어요','uncertain')]
+        for i,(label,reason,dest) in enumerate(choices):
             if st.button(label,key='mq_reason_'+str(i),use_container_width=True):
-                st.session_state['mq_reason']=label
-                advance('safety_check')
-        return
-    if step=='unwell':
-        st.subheader('어떤 불편함이 있나요?')
-        for i,label in enumerate(['메스꺼움 · 속 불편함','어지러움','삼키기 어려움','다른 증상','호흡곤란 · 의식 저하']):
-            if st.button(label,key='mq_symptom_'+str(i),use_container_width=True):
-                st.session_state['mq_symptom']=label;advance('symptom_help')
-        return
-    if step=='symptom_help':
-        symptom=st.session_state.get('mq_symptom','다른 증상')
-        st.subheader('지금 할 수 있는 일')
-        advice={
-            '메스꺼움 · 속 불편함':'편한 자세로 쉬고, 토한 시각과 횟수를 적어두세요. 토했다고 약을 다시 먹거나 식사 조건을 임의로 바꾸지 마세요.',
-            '어지러움':'① 누워서 어지러움이 가라앉을 때까지 쉬세요. ② 일어날 때 천천히 움직이세요. ③ 운전·사다리·기계 사용을 피하세요. 물은 의식과 삼킴이 정상이고 수분 제한 처방이 없을 때 마시세요.',
-            '삼키기 어려움':'억지로 삼키거나 약을 임의로 쪼개고 가루내지 마세요. 물도 삼키기 어렵거나 숨이 차면 즉시 도움을 요청하세요.',
-            '다른 증상':'언제부터 어떤 증상인지 적고, 약 포장과 마지막 복용 기록을 준비하세요.',
-            '호흡곤란 · 의식 저하':'즉시 119에 연락하고 곁에 있는 사람에게 도움을 요청하세요. 약·물·음식을 억지로 먹이지 마세요.'}
-        st.write(advice[symptom])
-        if symptom=='호흡곤란 · 의식 저하':
-            st.link_button('119 전화','tel:119',use_container_width=True)
-        notes=st.text_input('증상 메모',placeholder='예시) 오전 9시부터 어지러움',key='mq_symptom_note')
-        if st.button('가족에게 보낼 내용 보기',use_container_width=True):
-            target=st.session_state['mq_target'];m=target['m']
-            st.text_area('복사해서 보내세요',value=f"{m['person']} · {m['name']} / {target['slot']} 일정\n증상: {symptom}\n{notes}\n복용 여부 확인과 도움을 부탁해요.",height=130)
-        st.caption('위 행동은 증상에 대한 일반적인 안전 조치이며, 해당 약의 복용·중단 지시는 아닙니다. 증상이 지속되거나 심해지면 의료진에게 상담하세요.')
-        if st.button('상황 확인 계속',use_container_width=True):advance('dose_certainty')
+                for field in ('mq_count','mq_group','mq_current_symptom','mq_leaflet','mq_saved_detail','mq_saved_source'):
+                    st.session_state.pop(field,None)
+                st.session_state['mq_reason']=reason
+                advance(dest)
         return
     if step=='uncertain':
-        st.subheader('먹었는지 먼저 확인하세요')
-        st.write('다시 먹기 전에 기록과 가족에게 확인하세요.')
-        if st.button('복용 기록 보기',use_container_width=True):history_dialog()
-        if st.button('아직 모르겠어요 · 저장',use_container_width=True):finish()
-        if st.button('안 먹은 것을 확인했어요',use_container_width=True):advance('know')
+        st.subheader('복용 기록이나 남은 약을 확인해 보세요')
+        st.write('약통·포장에 약이 남아 있는지 확인하고, 함께 있던 가족에게 물어보세요. 기록만으로 실제 복용을 확정할 수는 없어요. 확인 없이 한 번 더 먹지는 마세요.')
+        if st.button('앱의 복용 기록 열기',use_container_width=True):history_dialog()
+        if st.button('안 먹은 걸 확인했어요',use_container_width=True):
+            st.session_state['mq_reason']='미복용 확인';advance('miss_count')
+        if st.button('확인이 안 돼요 · 확인 필요로 남기기',use_container_width=True):
+            finish('확인 대기','실제 복용 여부 불명확. 추가 복용 전 제품별 지침 확인 필요.','사용자 확인')
         return
-    if step in ('home_action','safety_check'):
-        st.subheader('지금 이런 증상이 있나요?')
-        st.write('숨쉬기 어려움 · 의식 저하 · 갑자기 말이 어눌해지거나 한쪽 팔다리 힘이 빠짐')
-        if st.button('있어요',use_container_width=True):advance('urgent_help')
-        if st.button('없어요',use_container_width=True):advance('dose_certainty')
+    if step in ('home_action','safety_check','dose_certainty','unwell','symptom_help'):
+        # Compatibility for a session already open on a screen from the previous version.
+        advance('current_symptom' if st.session_state.get('mq_reason')=='몸이 불편해요' else 'miss_count')
         return
     if step=='urgent_help':
         st.subheader('지금은 응급 도움이 먼저예요')
@@ -909,35 +895,36 @@ def missed_flow(elder):
         st.write('3. 의식이 흐리거나 삼키기 어려우면 약·물·음식을 먹이지 마세요.')
         st.link_button('119 전화','tel:119',use_container_width=True)
         return
-    if step=='dose_certainty':
-        st.subheader('이 회차를 안 먹은 것이 확실한가요?')
-        for i,label in enumerate(['안 먹은 것이 확실해요','먹었는지 모르겠어요']):
-            if st.button(label,key='mq_cert_'+str(i),use_container_width=True):
-                st.session_state['mq_certainty']=label
-                advance('miss_count' if i==0 else 'uncertain')
-        return
     if step=='miss_count':
-        st.subheader('연속으로 몇 회를 놓쳤나요?')
-        for i,label in enumerate(['이번 1회','2회 이상','정확히 모르겠어요']):
+        st.subheader('이 약을 몇 번 연속 못 먹었나요?')
+        for i,label in enumerate(['이번 한 번만 못 먹었어요','앞선 복용 시간에도 못 먹었어요','몇 번인지 기억이 안 나요']):
             if st.button(label,key='mq_count_'+str(i),use_container_width=True):
-                st.session_state['mq_count']=label;advance('medicine_group')
+                st.session_state['mq_count']=['이번 1회','2회 이상','정확히 모르겠어요'][i];advance('medicine_group')
         return
     if step=='medicine_group':
-        st.subheader('어떤 종류의 약인가요?')
-        for i,label in enumerate(['인슐린','뇌전증·경련 약','파킨슨병 약','항응고제','피임약','주 1회 약·항암제·이식 후 약','그 외 약','모르겠어요']):
+        st.subheader('이 약은 무엇 때문에 사용하나요?')
+        choices=[('당뇨 · 인슐린 주사','인슐린'),('뇌전증 · 발작 예방','뇌전증·경련 약'),
+                 ('파킨슨병 치료','파킨슨병 약'),('혈전 예방 · 항응고제','항응고제'),
+                 ('피임','피임약'),('항암 · 이식 후 치료 · 주 1회 복용','주 1회 약·항암제·이식 후 약'),
+                 ('위 항목에 해당하지 않아요','그 외 약'),('어떤 약인지 잘 모르겠어요','모르겠어요')]
+        for i,(label,group) in enumerate(choices):
             if st.button(label,key='mq_group_'+str(i),use_container_width=True):
-                st.session_state['mq_group']=label;advance('current_symptom')
+                st.session_state['mq_group']=group;advance('leaflet_check')
         return
     if step=='current_symptom':
-        st.subheader('현재 불편한 증상이 있나요?')
-        for i,label in enumerate(['없어요','어지러움','메스꺼움·구토','삼키기 어려움','다른 증상']):
+        st.subheader('어디가 불편해서 못 먹었나요?')
+        choices=['어지러워요','메스껍거나 토했어요','약을 삼키기 어려워요','다른 증상이 있어요','숨쉬기 어렵거나 의식이 흐려요','갑자기 말이 어눌하거나 한쪽 팔다리에 힘이 없어요']
+        for i,label in enumerate(choices):
             if st.button(label,key='mq_current_'+str(i),use_container_width=True):
-                st.session_state['mq_current_symptom']=label;advance('leaflet_check')
+                if i>=4:advance('urgent_help')
+                else:
+                    st.session_state['mq_current_symptom']=['어지러움','메스꺼움·구토','삼키기 어려움','다른 증상'][i]
+                    advance('miss_count')
         return
     if step=='leaflet_check':
-        st.subheader('이 약의 누락 복용 지침이 있나요?')
-        st.write('약 설명서의 ‘복용을 잊었을 때’ 또는 본인에게 받은 의료진 지침')
-        for i,label in enumerate(['있고, 내 상황에 적용돼요','없거나 적용되는지 모르겠어요']):
+        st.subheader('약 설명서에 ‘먹는 걸 잊었을 때’ 안내가 있나요?')
+        st.write('이 약에 대해 의사·약사에게 따로 받은 안내도 포함해요.')
+        for i,label in enumerate(['안내가 있어요','없거나 찾지 못했어요']):
             if st.button(label,key='mq_leaflet_'+str(i),use_container_width=True):
                 st.session_state['mq_leaflet']=i==0;advance('tailored_action')
         return
@@ -948,8 +935,7 @@ def missed_flow(elder):
         count=st.session_state.get('mq_count','정확히 모르겠어요')
         reason=st.session_state.get('mq_reason','깜빡했어요')
         has_guide=st.session_state.get('mq_leaflet',False)
-        st.subheader(med['name'])
-        st.write(f"{med['person']} · {target['slot']} 회차 · {count}")
+        st.write('못 먹은 횟수: '+count)
         st.markdown('### 지금 할 일')
         actions=[]
         if symptom=='어지러움':
@@ -996,7 +982,7 @@ def missed_flow(elder):
         if st.button('없어요 · 이해하기 어려워요',use_container_width=True):advance('contact')
         return
     if step=='contact':
-        st.subheader('약국에 복용법을 물어보세요')
+        st.subheader('이 약을 언제 먹어야 할지 확인이 필요해요')
         st.write('확인 전 임의로 추가 복용하지 마세요.')
         phone=st.text_input('약국·병원 전화번호',placeholder='예시) 02-123-4567',key='mq_phone')
         cleaned=re.sub(r'[\s()-]','',phone)
@@ -1011,7 +997,7 @@ def missed_flow(elder):
             finish()
         return
     if step=='instruction':
-        st.subheader('확인한 복용법을 적어주세요')
+        st.subheader('설명서나 의료진의 안내를 적어주세요')
         detail=st.text_input('안내 내용',value=st.session_state.get('mq_saved_detail',''),key='mq_detail')
         source=st.text_input('확인한 곳',value=st.session_state.get('mq_saved_source',''),placeholder='예시) 약 봉투 / 약사',key='mq_source')
         if st.button('다음',type='primary',use_container_width=True):
