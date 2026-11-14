@@ -249,7 +249,7 @@ def registration(mode):
             dose = st.text_input('1회 복용량 / 주의사항', placeholder='예시) 처방대로 입력: 예) 1정, 식후', max_chars=160)
             expiry = st.date_input('포장에 표시된 사용기한 / 유효기간', value=date.today() + timedelta(days=30), min_value=date(2000, 1, 1), max_value=date(2100, 12, 31))
             stock = st.checkbox('상비약 목록에도 표시')
-            times = st.text_input('매일 복용 시각 (쉼표로 구분)', placeholder='예시) 08:00, 13:00, 19:00', help='상비약만 보관할 때는 비워두세요. 필요시 복용 약의 임의 일정을 만들지 마세요.')
+            times = ','.join(st.multiselect('매일 복용 시각', [f'{h:02d}:{minute:02d}' for h in range(24) for minute in range(60)],help='처방된 시각만 선택하세요. 상비약만 보관할 때는 비워두세요.'))
             gap = st.number_input('최소 복용 간격 (시간, 처방에 있는 경우만)', min_value=0.0, max_value=168.0, value=0.0, step=0.5, help='0은 간격 검사를 하지 않음. 입력한 동일 주성분 약 기록에도 적용됩니다. 의학적으로 안전한 간격을 앱이 결정하지 않습니다.')
             submit = st.form_submit_button('약 등록', use_container_width=True)
         if submit:
@@ -259,7 +259,7 @@ def registration(mode):
             elif not name.strip() or not dose.strip():
                 st.warning('약 이름과 복용량/주의사항을 입력하세요.')
             elif any(not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', x) for x in parts):
-                st.warning('시각은 08:00처럼 입력하세요.')
+                st.caption('복용 시각 입력칸에 08:00 형식으로 입력해 주세요.')
             elif len(set(parts)) > 8:
                 st.warning('하루 최대 8회까지 등록할 수 있습니다.')
             elif not parts and not stock:
@@ -271,6 +271,76 @@ def registration(mode):
                         (id,person_id,name,ingredient,dose,expiry,times,gap,stock,active)
                         VALUES (?,?,?,?,?,?,?,?,?,1)''', (str(uuid.uuid4()), owner['id'], name.strip(), ingredient.strip(), dose.strip(), expiry.isoformat(), json.dumps(sorted(set(parts))), gap, int(stock)))
                 st.rerun()
+
+
+def supply_tables():
+    with database(True) as conn:
+        execute(conn,'CREATE TABLE IF NOT EXISTS fm_supply (med_id TEXT PRIMARY KEY, remaining INTEGER NOT NULL, updated TEXT NOT NULL, remind_days INTEGER NOT NULL)')
+        execute(conn,'CREATE TABLE IF NOT EXISTS fm_supply_read (id TEXT PRIMARY KEY)')
+
+
+def forecast_supply(remaining, times, current):
+    times=sorted(set(times))
+    if remaining<=0:return current
+    if not times:return None
+    today_slots=[datetime.combine(current.date(),datetime.strptime(t,'%H:%M').time(),TZ) for t in times]
+    future=[x for x in today_slots if x>current]
+    if remaining<=len(future):return future[remaining-1]
+    index=remaining-len(future)-1
+    day=current.date()+timedelta(days=1+index//len(times))
+    return datetime.combine(day,datetime.strptime(times[index%len(times)],'%H:%M').time(),TZ)
+
+
+def supply_status(m):
+    supply_tables()
+    result=rows('SELECT * FROM fm_supply WHERE med_id=?',(m['id'],))
+    if not result:return None
+    r=result[0]
+    consumed=rows('SELECT COUNT(*) AS n FROM fm_logs WHERE med_id=? AND taken_at>?',(m['id'],r['updated']))[0]['n']
+    remaining=max(0,r['remaining']-consumed)
+    times=json.loads(m['times'])
+    forecast=forecast_supply(remaining,times,now())
+    days=remaining/len(set(times)) if times else None
+    low=remaining==0 or (forecast is not None and forecast<=now()+timedelta(days=r['remind_days']))
+    alert_id=m['id']+'|'+r['updated']+('|empty' if remaining==0 else '|low')
+    return dict(remaining=remaining,days=days,forecast=forecast,low=low,id=alert_id,lead=r['remind_days'])
+
+
+def supply_editor(m):
+    st.markdown('### 남은 약 · 미리 알림')
+    status=supply_status(m)
+    times=json.loads(m['times']);daily=len(set(times))
+    if status:
+        st.write(f"남은 약 약 {status['remaining']}회분"+(f" · 약 {status['days']:.1f}일분" if status['days'] is not None else ''))
+        if status['forecast'] and status['remaining']>0:st.write('소진 예상: '+status['forecast'].strftime('%m/%d %H:%M'))
+        elif status['remaining']==0:st.write('남은 약이 없어요.')
+    mode=st.radio('남은 양 입력 방법',['며칠분','몇 회분'],horizontal=True,key='supply_mode_'+m['id']) if daily else '몇 회분'
+    if mode=='며칠분':
+        amount=st.number_input('지금 남은 약은 며칠분인가요?',min_value=0,max_value=3650,value=0,step=1,key='supply_days_'+m['id'])
+        total=amount*daily
+        st.caption(f'등록된 하루 {daily}회 기준 · {total}회분')
+    else:
+        total=st.number_input('지금 남은 약은 몇 회분인가요?',min_value=0,max_value=100000,value=0,step=1,key='supply_doses_'+m['id'])
+    lead=st.number_input('다 떨어지기 며칠 전에 알릴까요?',min_value=1,max_value=30,value=status['lead'] if status else 3,step=1,key='supply_lead_'+m['id'])
+    st.caption('1회분은 한 번 먹을 양이에요. 저장 이후 복용 기록 1건마다 1회분을 차감해 추정해요. 남은 양이 다르면 다시 입력하세요.')
+    if not daily:st.caption('정해진 복용 시각이 없는 약은 소진일을 예상하지 않아요.')
+    checked=st.checkbox('현재 남은 양을 확인했어요',key='supply_checked_'+m['id'])
+    if st.button('남은 양 · 알림 저장',disabled=not checked,use_container_width=True,key='supply_save_'+m['id']):
+        with database(True) as conn:
+            execute(conn,'INSERT INTO fm_supply VALUES (?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET remaining=excluded.remaining,updated=excluded.updated,remind_days=excluded.remind_days',(m['id'],int(total),now().isoformat(),int(lead)))
+        st.rerun()
+
+
+def supply_alerts(person_id):
+    supply_tables()
+    medicines=rows('SELECT * FROM fm_meds WHERE person_id=? AND active=1 AND id NOT IN (SELECT med_id FROM fm_removed)',(person_id,))
+    read_ids={x['id'] for x in rows('SELECT id FROM fm_supply_read')}
+    alerts=[]
+    for m in medicines:
+        r=supply_status(m)
+        if r and r['low']:
+            r['medicine']=m['name'];r['unread']=r['id'] not in read_ids;alerts.append(r)
+    return alerts
 
 
 @st.dialog('상비약 · 약 관리', width='small')
@@ -292,7 +362,7 @@ def inventory():
         st.warning(f'유효기간까지 {remaining}일 · 보관/개봉 후 기한도 확인하세요.')
     else:
         st.success(f'유효기간까지 {remaining}일')
-    st.caption('보관 수량·재고 차감은 지원하지 않습니다. 개봉·조제 후 사용기한은 별도로 확인하세요.')
+    st.caption('남은 약과 미리 알림은 약통의 연필 버튼에서 설정하세요.')
     confirm = st.checkbox('이 약의 일정을 중지하고 목록에서 숨깁니다 (기록은 유지)')
     if st.button('선택 약 보관 중지', disabled=not confirm, use_container_width=True):
         with database(True) as conn:
@@ -340,7 +410,7 @@ def edit_medicine(med_id):
         ingredient=st.text_input('주성분',value=m['ingredient'],max_chars=100)
         dose=st.text_input('1회 복용량',value=m['dose'],max_chars=100)
         expiry=st.date_input('유효기간',value=date.fromisoformat(m['expiry']))
-        times=st.text_input('복용 시각',value=', '.join(json.loads(m['times'])),placeholder='예시) 08:00, 20:00')
+        times=','.join(st.multiselect('복용 시각',[f'{h:02d}:{minute:02d}' for h in range(24) for minute in range(60)],default=json.loads(m['times'])))
         gap=st.number_input('최소 복용 간격 (시간)',min_value=0.0,max_value=168.0,value=float(m['gap']),step=0.5)
         stock=st.checkbox('상비약',value=bool(m['stock']))
         active=st.checkbox('복용 일정 사용',value=bool(m['active']))
@@ -353,6 +423,8 @@ def edit_medicine(med_id):
         with database(True) as conn:
             execute(conn,'UPDATE fm_meds SET name=?,ingredient=?,dose=?,expiry=?,times=?,gap=?,stock=?,active=? WHERE id=?',(name.strip(),ingredient.strip(),dose.strip(),expiry.isoformat(),json.dumps(sorted(set(values))),gap,int(stock),int(active),med_id))
         st.rerun()
+
+    supply_editor(m)
 
 
 @st.dialog('🗑️ 약 삭제', width='small')
@@ -798,17 +870,49 @@ def touch_choice(label, options, key):
     return st.session_state[key]
 
 
+@st.dialog('빠뜨린 복용 기록',width='small')
+def late_intake_dialog(item):
+    m=item['m']
+    st.subheader(m['name'])
+    st.write(f"{m['person']} · {item['slot']}에 먹을 약")
+    actual_day=st.date_input('실제로 먹은 날짜',value=date.fromisoformat(item['day']),max_value=now().date(),key='late_day')
+    actual_time=st.time_input('실제로 먹은 시각',value=datetime.strptime(item['slot'],'%H:%M').time(),key='late_time')
+    st.caption('지금 새로 먹는 버튼이 아니라, 이미 먹은 사실을 기록하는 버튼이에요.')
+    confirmed=st.checkbox('선택한 약을 실제로 먹었어요',key='late_confirm')
+    if st.button('복용 기록 저장',disabled=not confirmed,type='primary',use_container_width=True):
+        actual=datetime.combine(actual_day,actual_time,TZ)
+        if actual>now():st.error('미래 시각은 기록할 수 없어요.');return
+        with database(True) as conn:
+            if PG:execute(conn,'SELECT id FROM fm_people WHERE id=? FOR UPDATE',(m['person_id'],))
+            exists=execute(conn,'SELECT id FROM fm_logs WHERE med_id=? AND day=? AND slot=?',(m['id'],item['day'],item['slot'])).fetchone()
+            if exists:st.info('이미 복용 기록이 있어요.');return
+            execute(conn,'INSERT INTO fm_logs(id,med_id,day,slot,taken_at) VALUES (?,?,?,?,?)',(str(uuid.uuid4()),m['id'],item['day'],item['slot'],actual.isoformat()))
+            execute(conn,'DELETE FROM fm_missed WHERE med_id=? AND day=? AND slot=?',(m['id'],item['day'],item['slot']))
+            execute(conn,'DELETE FROM fm_followup WHERE med_id=? AND day=? AND slot=?',(m['id'],item['day'],item['slot']))
+            execute(conn,'UPDATE fm_contact_tasks SET done=1 WHERE med_id=? AND day=? AND slot=?',(m['id'],item['day'],item['slot']))
+            execute(conn,'DELETE FROM fm_notices WHERE id=?',(f"{m['person_id']}|{item['day']}|{m['id']}|{item['slot']}",))
+        st.session_state['dose_toast']=m['name']+' 복용 기록을 저장했어요'
+        st.rerun()
+
+
 def missed_overview():
-    st.subheader('못 먹은 약 · 확인 필요')
+    if st.button('오늘로 돌아가기',icon=':material/arrow_back:',key='overview_back'):
+        st.session_state.page='오늘 약 먹기';st.rerun()
+    st.subheader('복용 기록 확인')
     items=unresolved_slots()
     if not items:st.info('확인할 약이 없습니다.')
     for i,item in enumerate(items):
         m=item['m']
-        if st.button(f"{m['person']} · {m['name']} · {item['slot']}",key='miss_overview_'+str(i),use_container_width=True,icon=':material/pill_off:'):
-            for key in list(st.session_state):
-                if key.startswith('mq_'):del st.session_state[key]
-            st.session_state['mq_target']=item;st.session_state['mq_step']='reason'
-            st.session_state.page='놓친 약 확인';st.rerun()
+        with st.container(border=True):
+            st.subheader(m['name'])
+            st.write(f"{m['person']} · {item['day']} · {item['slot']}")
+            if st.button('먹었는데 기록을 못 했어요',key='late_overview_'+str(i),use_container_width=True,icon=':material/check_circle:'):
+                late_intake_dialog(item)
+            if st.button('못 먹었어요 · 대처 방법 보기',key='miss_overview_'+str(i),use_container_width=True,icon=':material/pill_off:'):
+                for key in list(st.session_state):
+                    if key.startswith('mq_'):del st.session_state[key]
+                st.session_state['mq_target']=item;st.session_state['mq_step']='reason'
+                st.session_state.page='놓친 약 확인';st.rerun()
 
 
 def missed_flow(elder):
@@ -819,7 +923,7 @@ def missed_flow(elder):
             st.session_state.setdefault('mq_back_stack',[]).append(current)
         st.session_state['mq_step']=step
         st.rerun()
-    def finish(result='확인 대기', detail='', source=''):
+    def finish(result='확인 대기', detail='', source='', close=False):
         target=st.session_state['mq_target']
         m=target['m']; day=target['day']; slot=target['slot']
         if st.session_state.get('mq_reason')!='먹었는지 모르겠어요':
@@ -830,6 +934,13 @@ def missed_flow(elder):
         if result!='확인 대기':
             with database(True) as conn:
                 execute(conn,'UPDATE fm_contact_tasks SET done=1 WHERE med_id=? AND day=? AND slot=?',(m['id'],day,slot))
+        if close:
+            for key in list(st.session_state):
+                if key.startswith('mq_'):del st.session_state[key]
+            st.session_state.page='오늘 약 먹기'
+            st.session_state['dose_toast']='미복용 안내를 확인했어요'
+            st.rerun()
+            return
         advance('done')
     step=st.session_state.get('mq_step','select')
     if step=='done':
@@ -844,6 +955,11 @@ def missed_flow(elder):
         target=st.session_state['mq_target']
         st.subheader(target['m']['name'])
         st.write(f"{target['m']['person']} · {target['day']} · {target['slot']}에 먹을 약")
+    if not st.session_state.get('mq_back_stack'):
+        if st.button('오늘로 돌아가기',icon=':material/arrow_back:',key='mq_home_back'):
+            for key in list(st.session_state):
+                if key.startswith('mq_'):del st.session_state[key]
+            st.session_state.page='오늘 약 먹기';st.rerun()
     if step!='select' and st.session_state.get('mq_back_stack'):
         if st.button('이전 단계',icon=':material/arrow_back:',key='mq_previous'):
             st.session_state['mq_step']=st.session_state['mq_back_stack'].pop()
@@ -865,7 +981,7 @@ def missed_flow(elder):
     if step=='reason':
         st.subheader('이 약을 못 먹은 이유는 무엇인가요?')
         choices=[('먹는 걸 깜빡했어요','깜빡했어요','miss_count'),
-                 ('약이 다 떨어졌어요','약이 없어요','miss_count'),
+                 ('약이 다 떨어졌어요','약이 없어요','out_of_stock'),
                  ('몸이 불편해서 못 먹었어요','몸이 불편해요','current_symptom'),
                  ('먹었는지 기억이 안 나요','먹었는지 모르겠어요','uncertain')]
         for i,(label,reason,dest) in enumerate(choices):
@@ -874,6 +990,16 @@ def missed_flow(elder):
                     st.session_state.pop(field,None)
                 st.session_state['mq_reason']=reason
                 advance(dest)
+        return
+    if step=='out_of_stock':
+        st.subheader('약을 다시 준비해 주세요')
+        st.write('1. 약 봉투와 보관함에 본인 약이 남아 있는지 확인하세요.')
+        st.write('2. 남은 약이 없다면 약 이름·함량과 마지막 복용 시각을 준비해 처방·조제한 곳에 보충 방법을 확인하세요.')
+        st.write('3. 다른 사람의 처방약으로 대신 먹거나, 새 약을 구한 뒤 두 회분을 한꺼번에 먹지 마세요.')
+        st.caption('인슐린·발작 예방약·파킨슨병 약·항응고제·항암제·이식 후 약은 지체 없이 담당 의료진에게 확인하세요.')
+        st.write('다음에는 약통 → 연필 → 남은 약 · 미리 알림에서 남은 양을 등록하세요.')
+        if st.button('확인하고 나가기',type='primary',use_container_width=True):
+            finish('확인 대기','약 소진. 약 보충 및 재개 시각 확인 필요.','사용자 확인',close=True)
         return
     if step=='uncertain':
         st.subheader('복용 기록이나 남은 약을 확인해 보세요')
@@ -964,6 +1090,8 @@ def missed_flow(elder):
             actions += ['설명서에도 지침이 없으면 다음 복용 결정 전에 약사에게 제품명·놓친 시각·다음 예정 시각을 알려 확인하세요.']
         actions += ['누락분을 보충하려고 두 회분을 한꺼번에 먹지 마세요. 의료진의 별도 지시가 있다면 그 지시를 따르세요.']
         for i,text in enumerate(actions,1):st.write(f'{i}. {text}')
+        if st.button('확인하고 나가기',use_container_width=True,key='mq_exit_advice'):
+            finish('확인 대기','\n'.join(actions),'NHS SPS · 일반 안전 안내 확인; 복용 결정 완료 아님',close=True)
         st.link_button('안내 출처 · NHS SPS','https://www.sps.nhs.uk/articles/advising-on-missed-or-delayed-doses-of-medicines/',use_container_width=True)
         if symptom=='어지러움':st.link_button('어지러움 대처 · NHS','https://www.nhs.uk/conditions/dizziness/',use_container_width=True)
         if has_guide:
@@ -1134,6 +1262,16 @@ def intake_table():
 @st.dialog('🔔 복용 알림', width='small')
 def dose_notifications(person_id, person_name, completed, total):
     st.markdown(f'**👤 {safe(person_name)}**')
+    supplies=supply_alerts(person_id)
+    for item in supplies:
+        with st.container(border=True):
+            st.markdown('**'+safe(item['medicine'])+' · 약 보충**')
+            if item['remaining']==0:st.write('남은 약이 없어요. 약을 보충해 주세요.')
+            else:
+                st.write(f"약 {item['remaining']}회분 남음 · 약 {item['days']:.1f}일분" if item['days'] is not None else f"약 {item['remaining']}회분 남음")
+                if item['forecast']:st.write('소진 예상 '+item['forecast'].strftime('%m/%d %H:%M')+' · 미리 약을 준비하세요.')
+        with database(True) as conn:
+            execute(conn,'INSERT INTO fm_supply_read VALUES (?) ON CONFLICT(id) DO NOTHING',(item['id'],))
     tasks=rows('SELECT * FROM fm_contact_tasks WHERE person_id=? ORDER BY day DESC,slot DESC',(person_id,))
     for task in tasks:
         with st.container(border=True):
@@ -1154,7 +1292,7 @@ def dose_notifications(person_id, person_name, completed, total):
             st.markdown(f"**{safe(n['medicine'])}**")
             st.write(f"{n['day']} · {n['slot']}  |  기록 없음")
 
-    if not notices and not tasks:st.info('알림이 없습니다.')
+    if not notices and not tasks and not supplies:st.info('알림이 없습니다.')
 
 
 @st.dialog('약 복용 확인',width='small')
@@ -1327,7 +1465,7 @@ def dashboard(person_id, elder):
                     if med['id'] in photos:
                         graphic=f'<img src="data:image/jpeg;base64,{photos[med["id"]]}" alt="{safe(med["name"])} 사진" style="width:66px;height:66px;object-fit:contain;border-radius:10px;" />'
                     else:
-                        graphic=f'<div aria-label="약 구분용 그림" role="img" style="width:27px;height:58px;border:2px solid #405c60;border-radius:999px;background:linear-gradient(#fff 0%,#fff 48%,#405c60 48%,#405c60 52%,{color} 52%,{color} 100%);transform:rotate(35deg);"></div>'
+                        graphic=f'<div aria-label="약 구분용 그림" role="img" style="position:relative;width:40px;height:66px;border:2px solid #405c60;border-radius:24px;background:linear-gradient(#fff 0%,#fff 48%,#405c60 48%,#405c60 51%,{color} 51%,{color} 100%);transform:rotate(28deg);box-shadow:3px 5px 0 rgba(64,92,96,.10);"><span style="position:absolute;top:9px;left:8px;width:6px;height:18px;border-radius:6px;background:#edf4f5;"></span><span style="position:absolute;bottom:9px;left:7px;width:5px;height:12px;border-radius:5px;background:rgba(255,255,255,.65);"></span><span style="position:absolute;top:-9px;right:-18px;color:#78958a;font-size:19px;">✧</span></div>'
                     st.html(f'<div style="height:96px;background:{background};border:1px solid {border};border-radius:16px;display:flex;align-items:center;justify-content:center;position:relative;"><span style="position:absolute;top:7px;right:9px;font-size:14px;font-weight:800;color:#24473d;">{"!" if rank==0 else "✓" if rank==2 else "◷"}</span>{graphic}</div>')
                     if st.button(med['name']+' · '+prefix,key='tile_med_'+med['id'],use_container_width=True):
                         medicine_schedules_dialog(dict(med),pname,today,[(e['time'],e['done']) for e in entries])
@@ -1343,7 +1481,7 @@ def dashboard(person_id, elder):
             execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
     pending_tasks=rows('SELECT id FROM fm_contact_tasks WHERE person_id=? AND done=0',(person_id,))
-    unread_count=len(unread)+len(pending_tasks)
+    unread_count=len(unread)+len(pending_tasks)+sum(x['unread'] for x in supply_alerts(person_id))
     bell_border = '#b42318' if unread_count else '#abc7c0'
     bell_bg = '#fff0ec' if unread_count else '#ffffff'
     st.markdown(f"""<style>
