@@ -836,6 +836,13 @@ def home_screen(elder):
     [data-testid="stAppViewContainer"]{background:#F7FAF8!important;}
     .st-key-medicine_tiles button p{font-size:17px!important;font-weight:750!important;}
     </style>""",unsafe_allow_html=True)
+    st.markdown("""<style>
+    [data-testid="stVerticalBlockBorderWrapper"],[data-testid="stForm"],
+    [data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,
+    [data-testid="stDateInput"] input,[data-baseweb="select"]>div {
+    border:1px solid #CFDDD6!important;border-radius:14px!important;box-shadow:none!important;}
+    [data-testid="stDateInput"] input,[data-testid="stDateInput"] [data-baseweb="input"] {background:#FFFFFF!important;color:#173C35!important;-webkit-text-fill-color:#173C35!important;}
+    </style>""",unsafe_allow_html=True)
     page=st.session_state.get('page','오늘 약 먹기')
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
@@ -866,16 +873,20 @@ def home_screen(elder):
         if st.button('＋ 약 등록',use_container_width=True):registration('medicine')
         meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE NOT EXISTS (SELECT 1 FROM fm_removed r WHERE r.med_id=m.id) ORDER BY m.expiry')
         if not meds:st.info('등록한 약이 없습니다.')
-        for m in compact_page(meds,'cabinet_page',3):
-            expired=m['expiry']<now().date().isoformat()
+        groups={}
+        for med in meds:groups.setdefault((med['name'].strip(),med['ingredient'].strip()),[]).append(med)
+        for group_index,group in enumerate(groups.values()):
             with st.container(border=True):
+                st.markdown('### '+safe(group[0]['name']))
+                st.write(' · '.join(dict.fromkeys(x['person'] for x in group)))
+                m=st.selectbox('家族'.replace('家族','가족별 약 정보'),group,format_func=lambda x:x['person'],key='cab_owner_'+str(group_index)) if len(group)>1 else group[0]
+                expired=m['expiry']<now().date().isoformat()
                 photo,info,edit,delete=st.columns([2,5,1,1],gap='small')
                 saved_photo=rows('SELECT image_b64 FROM fm_photos WHERE med_id=?',(m['id'],))
                 if saved_photo:
                     import base64
                     photo.image(base64.b64decode(saved_photo[0]['image_b64']),use_container_width=True)
                 if photo.button('',icon=':material/photo_camera:',help='약 사진 촬영·변경',key='photo_'+m['id']):medicine_photo(m['id'],m['name'])
-                info.markdown(f"### {safe(m['name'])}")
                 info.write(f"{m['person']} · {m['dose']}")
                 info.caption(('기한 지남 · ' if expired else '유효기간 · ')+m['expiry'])
                 supply=supply_status(m) if m['active'] else None
@@ -1243,13 +1254,21 @@ def missed_records_dialog():
 
 
 def render_action_steps(text):
-    # Old saved advice can be a paragraph; new advice is newline-delimited.
-    parts=[x.strip() for x in re.split(r'\n+|(?<=[.!?。])\s+',text or '') if x.strip()]
-    for i,part in enumerate(parts,1):
+    parts=[x.strip() for x in re.split(r'\n+',text or '') if x.strip()]
+    concise={
+    '누락 후에는 운전·수영 등 발작 시 위험한 활동을 피하세요.':'운전·수영은 피하세요. 발작 시 위험할 수 있어요.',
+    '설명서의 제품명·함량·제형이 내 약과 같은지 확인하고, 놓친 횟수와 경과 시간에 해당하는 지침을 따르세요.':'설명서의 제품명·함량·제형을 확인하세요. 내 약과 같다면 놓친 횟수·시간에 맞는 안내를 따르세요.',
+    '놓친 횟수·예정 시각·마지막 실제 복용 시각과 약 포장을 준비해 담당 약사 또는 진료팀에 지체 없이 확인하세요. 확인 없이 계속 기다리거나 다음 회차까지 무조건 중단하지 마세요.':'약 포장과 놓친 횟수·예정 시각·마지막 복용 시각을 준비해 지금 약사·진료팀에 확인하세요. 확인 없이 계속 기다리거나 임의로 중단하지 마세요.',
+    '누락분을 보충하려고 두 회분을 한꺼번에 먹지 마세요. 의료진의 별도 지시가 있다면 그 지시를 따르세요.':'두 회분을 한꺼번에 먹지 마세요. 의료진이 따로 지시했다면 그 안내를 따르세요.'}
+    seen=set()
+    for part in parts:
         part=re.sub(r'^\d+[.)]\s*','',part)
-        with st.container(border=True):
-            st.markdown(f'**{i:02d}**')
-            st.write(part)
+        part=concise.get(part,part)
+        if part in seen:continue
+        seen.add(part)
+        head,sep,tail=part.partition('. ')
+        st.markdown('**'+head+('.' if sep else '')+'**')
+        if tail:st.write(tail)
 
 
 def followup_history():
@@ -1370,6 +1389,9 @@ def intake_table():
 @st.dialog('🔔 복용 알림', width='small')
 def dose_notifications(person_id, person_name, completed, total):
     st.markdown(f'**{safe(person_name)}의 알림**')
+    expired_meds=rows('SELECT * FROM fm_meds WHERE person_id=? AND active=1 AND expiry<? AND id NOT IN (SELECT med_id FROM fm_removed)',(person_id,now().date().isoformat()))
+    for em in expired_meds:
+        st.error(em['name']+' · 유효기간 지남 — 복용하지 마세요. ('+em['expiry']+')')
     supplies=supply_alerts(person_id)
     for item in supplies:
         skey='supply_notice_'+str(supplies.index(item))
@@ -1404,9 +1426,9 @@ def dose_notifications(person_id, person_name, completed, total):
         st.markdown(f"<style>.st-key-{key}{{background:{'#E7F5EF' if fresh else '#FFFFFF'}!important;border:1px solid {'#B6DBCB' if fresh else '#E2EAE6'}!important;border-radius:18px!important;padding:16px!important;}}</style>",unsafe_allow_html=True)
         with st.container(key=key):
             st.markdown(('**새 알림 · **' if fresh else '')+'**'+safe(n['medicine'])+'**')
-            st.write(f"{n['day']} · {n['slot']}에 먹을 약")
-            st.write('복용 기록이 비어 있어요. 먹었는지 확인해 주세요.')
-            if st.button('복용 기록 확인하기',key='open_'+key,use_container_width=True):
+            if not n['id'].startswith('expiry|'):st.write(f"{n['day']} · {n['slot']}에 먹을 약")
+            st.write('유효기간이 지났어요. 복용하지 마세요.' if n['id'].startswith('expiry|') else '복용 기록이 비어 있어요. 먹었는지 확인해 주세요.')
+            if not n['id'].startswith('expiry|') and st.button('복용 기록 확인하기',key='open_'+key,use_container_width=True):
                 with database(True) as conn:execute(conn,'UPDATE fm_notices SET is_read=1 WHERE id=?',(n['id'],))
                 st.session_state.page='미복용 목록';st.rerun()
             if fresh and st.button('알림 확인했어요',key='read_'+key,use_container_width=True):
@@ -1591,7 +1613,9 @@ def dashboard(person_id, elder):
                 color=palette[sum(med['id'].encode('utf-8'))%len(palette)]
                 background='#fff0ec' if rank==0 else '#e7f4ec' if rank==2 else '#f3f6f8'
                 border='#d28070' if rank==0 else '#9ecab0' if rank==2 else '#d5dfe2'
-                prefix='! 복용 확인' if rank==0 else '✓ 기록 완료' if rank==2 else '◷ 예정'
+                has_missed=any((e['m']['id'],e['time']) in missed_keys and not e['done'] for e in entries)
+                has_guidance=any((e['m']['id'],e['time']) in missed_keys and (e['m']['id'],e['time']) in follow_map and not e['done'] for e in entries)
+                prefix='✓ 복용 완료' if all(e['done'] for e in entries) else '미복용 · 안내 확인' if has_guidance else '미복용' if has_missed else '! 복용 확인' if rank==0 else '◷ 예정'
                 with col:
                     if med['id'] in photos:
                         graphic=f'<img src="data:image/jpeg;base64,{photos[med["id"]]}" alt="{safe(med["name"])} 사진" style="width:66px;height:66px;object-fit:contain;border-radius:10px;" />'
@@ -1612,6 +1636,10 @@ def dashboard(person_id, elder):
             execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
     with database(True) as conn:
         execute(conn,"DELETE FROM fm_notices WHERE EXISTS (SELECT 1 FROM fm_logs l JOIN fm_meds m ON m.id=l.med_id WHERE fm_notices.id=m.person_id||'|'||l.day||'|'||l.med_id||'|'||l.slot)")
+    with database(True) as conn:
+        for em in meds:
+            if em['expiry']<today:
+                execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',('expiry|'+em['id']+'|'+em['expiry'],person_id,today,'유효기간',em['name']))
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
     pending_tasks=rows('SELECT id FROM fm_contact_tasks WHERE person_id=? AND done=0',(person_id,))
     unread_count=len(unread)+len(pending_tasks)+sum(x['unread'] for x in supply_alerts(person_id))
