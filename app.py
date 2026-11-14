@@ -454,7 +454,7 @@ def history_dialog():
             st.caption(f"{r['person']} · 예정 {r['slot']} · 복용 기록됨")
     logs=shown
     by_id={r['id']:r for r in logs}
-    selected=st.multiselect('취소할 오기록 선택',list(by_id),format_func=lambda k:f"{by_id[k]['person']} · {by_id[k]['name']} · {by_id[k]['slot']}")
+    selected=st.multiselect('잘못 입력한 복용 기록 선택',list(by_id),format_func=lambda k:f"{by_id[k]['person']} · {by_id[k]['name']} · {by_id[k]['slot']}")
     st.warning('실제로 복용하지 않았는데 잘못 체크한 기록만 취소하세요. 실제 복용 기록을 지우면 중복 복용 방지에 영향을 줍니다.')
     checked=st.checkbox('선택한 항목은 실제로 복용하지 않은 오기록입니다')
     if st.button('선택한 오기록 취소',disabled=not checked or not selected,use_container_width=True):
@@ -884,7 +884,7 @@ def home_screen(elder):
                     if supply['remaining']>0 and supply['forecast']:info.caption('소진 예상 '+supply['forecast'].strftime('%m/%d'))
                     elif supply['remaining']==0:info.markdown('**남은 약이 없어요**')
                 else:info.caption('남은 양 미등록' if m['active'] else '복용 종료 · 이전 기록 유지')
-                if m['active']:
+                if m['active'] and supply and supply['low']:
                     if st.button('약 받아왔어요',icon=':material/add:',key='refill_'+m['id'],use_container_width=True):refill_dialog(m)
                     if st.button('처방에 따라 복용 종료',icon=':material/task_alt:',key='end_course_'+m['id'],use_container_width=True):end_course_dialog(m)
 
@@ -893,7 +893,7 @@ def home_screen(elder):
     elif page=='기록':
         st.subheader('복용 현황')
         intake_table()
-        if st.button('먹은 기록 · 오기록 취소',icon=':material/history:',use_container_width=True):history_dialog()
+        if st.button('오기록 취소',icon=':material/history:',use_container_width=True):history_dialog()
         if st.button('못 먹은 기록',icon=':material/history:',use_container_width=True):missed_records_dialog()
     else:
         st.subheader('가족')
@@ -1182,7 +1182,7 @@ def missed_flow(elder):
         elif not has_guide:
             actions += ['설명서에도 지침이 없으면 다음 복용 결정 전에 약사에게 제품명·놓친 시각·다음 예정 시각을 알려 확인하세요.']
         actions += ['누락분을 보충하려고 두 회분을 한꺼번에 먹지 마세요. 의료진의 별도 지시가 있다면 그 지시를 따르세요.']
-        for i,text in enumerate(actions,1):st.write(f'{i}. {text}')
+        render_action_steps('\n'.join(actions))
         if st.button('확인하고 나가기',use_container_width=True,key='mq_exit_advice'):
             finish('확인 대기','\n'.join(actions),'NHS SPS · 일반 안전 안내 확인; 복용 결정 완료 아님',close=True)
         st.link_button('안내 출처 · NHS SPS','https://www.sps.nhs.uk/articles/advising-on-missed-or-delayed-doses-of-medicines/',use_container_width=True)
@@ -1242,6 +1242,16 @@ def missed_records_dialog():
     followup_history()
 
 
+def render_action_steps(text):
+    # Old saved advice can be a paragraph; new advice is newline-delimited.
+    parts=[x.strip() for x in re.split(r'\n+|(?<=[.!?。])\s+',text or '') if x.strip()]
+    for i,part in enumerate(parts,1):
+        part=re.sub(r'^\d+[.)]\s*','',part)
+        with st.container(border=True):
+            st.markdown(f'**{i:02d}**')
+            st.write(part)
+
+
 def followup_history():
     labels={'확인 대기':'확인 중','안내 확인 후 건너뜀':'안내 확인 후 건너뜀','안내 확인 후 복용 보고':'안내 확인 후 복용했다고 보고','기록 확인 완료':'기록·가족 확인 완료'}
     records=rows('SELECT f.*,m.name AS medicine,p.name AS person FROM fm_followup f JOIN fm_meds m ON m.id=f.med_id JOIN fm_people p ON p.id=m.person_id ORDER BY f.recorded_at DESC LIMIT 100')
@@ -1249,7 +1259,7 @@ def followup_history():
     for r in records:
         st.write(f"{r['day']} {r['slot']} · {r['person']} · {r['medicine']}")
         st.caption(('대처 안내 확인 · 추가 복용 판단과 별개' if r['action']=='확인 대기' and r['guidance'] else labels.get(r['action'],r['action']))+' · '+r['source'])
-        st.write(r['guidance'] or '확인 내용 미입력')
+        render_action_steps(r['guidance'] or '확인 내용 미입력')
         if st.button('다시 확인하기',key='reopen_'+r['id']):
             with database(True) as conn:
                 execute(conn,"UPDATE fm_followup SET action='확인 대기' WHERE id=?",(r['id'],))
@@ -1424,7 +1434,7 @@ def medicine_schedules_dialog(med,person,day,schedules):
             if slot in done_slots:continue
             if missed:
                 st.write('사유: '+missed['reason'])
-                if follow and follow['guidance']:st.write(follow['guidance'])
+                if follow and follow['guidance']:render_action_steps(follow['guidance'])
                 if st.button('먹었는데 기록을 잘못 남겼어요',key='correct_missed_'+med['id']+slot,use_container_width=True):
                     st.session_state.page='미복용 목록';st.rerun()
                 continue
@@ -1567,7 +1577,7 @@ def dashboard(person_id, elder):
     .st-key-medicine_tiles button{min-height:48px!important;border-radius:12px!important;padding:8px!important;}
     .st-key-medicine_tiles button p{font-size:15px!important;white-space:normal!important;overflow-wrap:anywhere!important;}
     </style>""",unsafe_allow_html=True)
-    palette=['#93b7df','#b7a3d9','#e5b36e','#83bdb9','#d99fb7','#b0bc78']
+    palette=['#A9CBE3','#C5B7DE','#F0C791','#A7D5C4','#E7ADBF','#CBD69C']
     st.markdown("""<style>
     .st-key-medicine_tiles [data-testid="stVerticalBlock"]{gap:6px!important;}
     .st-key-medicine_tiles button{min-height:48px!important;padding:7px!important;}
@@ -1586,7 +1596,7 @@ def dashboard(person_id, elder):
                     if med['id'] in photos:
                         graphic=f'<img src="data:image/jpeg;base64,{photos[med["id"]]}" alt="{safe(med["name"])} 사진" style="width:66px;height:66px;object-fit:contain;border-radius:10px;" />'
                     else:
-                        graphic=f'<div aria-label="약 구분용 그림" role="img" style="position:relative;width:40px;height:66px;border:2px solid #405c60;border-radius:24px;background:linear-gradient(#fff 0%,#fff 48%,#405c60 48%,#405c60 51%,{color} 51%,{color} 100%);transform:rotate(28deg);box-shadow:3px 5px 0 rgba(64,92,96,.10);"><span style="position:absolute;top:9px;left:8px;width:6px;height:18px;border-radius:6px;background:#edf4f5;"></span><span style="position:absolute;bottom:9px;left:7px;width:5px;height:12px;border-radius:5px;background:rgba(255,255,255,.65);"></span><span style="position:absolute;top:-9px;right:-18px;color:#78958a;font-size:19px;">✧</span></div>'
+                        graphic=f'<div aria-label="둥근 알약 그림" role="img" style="position:relative;width:46px;height:72px;border:2px solid #3e5b59;border-radius:26px;background:linear-gradient(180deg,#fffefa 0%,#fffefa 49%,#3e5b59 49%,#3e5b59 51%,{color} 51%,{color} 100%);transform:rotate(24deg);box-shadow:inset -5px 0 0 rgba(28,67,58,.06),0 5px 0 rgba(35,67,58,.07);"><span style="position:absolute;top:8px;left:8px;width:8px;height:17px;border-radius:8px;background:#edf3ee;"></span><span style="position:absolute;bottom:9px;left:8px;width:7px;height:12px;border-radius:7px;background:rgba(255,255,255,.65);"></span></div>'
                     st.html(f'<div style="height:96px;background:{background};border:1px solid {border};border-radius:16px;display:flex;align-items:center;justify-content:center;position:relative;"><span style="position:absolute;top:7px;right:9px;font-size:14px;font-weight:800;color:#24473d;">{"!" if rank==0 else "✓" if rank==2 else "◷"}</span>{graphic}</div>')
                     if st.button(med['name']+' · '+prefix,key='tile_med_'+med['id'],use_container_width=True):
                         medicine_schedules_dialog(dict(med),pname,today,[(e['time'],e['done']) for e in entries])
