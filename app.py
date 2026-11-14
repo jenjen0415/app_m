@@ -1317,6 +1317,25 @@ def followup_history():
 
 @st.dialog('약 사진', width='small')
 def medicine_photo(med_id, name):
+    st.markdown("""<style>
+    [role="dialog"] [data-testid="stSegmentedControl"] button,
+    [role="dialog"] [data-testid="stSegmentedControl"] button *,
+    [role="dialog"] [data-testid="stButtonGroup"] button,
+    [role="dialog"] [data-testid="stButtonGroup"] button * {
+      background:#ffffff!important;color:#163047!important;
+      -webkit-text-fill-color:#163047!important;border-color:#b7ccc5!important;
+    }
+    [role="dialog"] button[aria-pressed="true"],
+    [role="dialog"] button[aria-pressed="true"] * {
+      background:#dcefe6!important;color:#123b30!important;
+      -webkit-text-fill-color:#123b30!important;
+    }
+    [role="dialog"] [data-testid="stCameraInput"] button,
+    [role="dialog"] [data-testid="stFileUploader"] button {
+      background:#fff!important;color:#163047!important;
+      -webkit-text-fill-color:#163047!important;
+    }
+    </style>""",unsafe_allow_html=True)
     import base64
     from PIL import Image, ImageOps, UnidentifiedImageError
     st.markdown('**'+safe(name)+'**')
