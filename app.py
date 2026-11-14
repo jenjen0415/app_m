@@ -923,10 +923,10 @@ def home_screen(elder):
                 saved_photo=rows('SELECT image_b64 FROM fm_photos WHERE med_id=?',(m['id'],))
                 if saved_photo:
                     import base64
-                    photo.image(base64.b64decode(saved_photo[0]['image_b64']),use_container_width=True)
+                    photo.image(base64.b64decode(saved_photo[0]['image_b64']),width=72)
                 else:
                     import base64
-                    photo.image(base64.b64decode(character_for(m)),use_container_width=True)
+                    photo.image(base64.b64decode(character_for(m)),width=72)
                 if photo.button('',icon=':material/photo_camera:',help='약 사진 촬영·변경',key='photo_'+m['id']):medicine_photo(m['id'],m['name'])
                 info.write(f"{m['person']} · {m['dose']}")
                 info.caption(('기한 지남 · ' if expired else '유효기간 · ')+m['expiry'])
