@@ -323,6 +323,53 @@ def supply_status(m):
     return dict(remaining=remaining,days=days,forecast=forecast,low=low,id=alert_id,lead=r['remind_days'])
 
 
+@st.dialog('약 받아왔어요',width='small')
+def refill_dialog(m):
+    st.subheader(m['name'])
+    current=supply_status(m)
+    remaining=current['remaining'] if current else 0
+    daily=len(set(json.loads(m['times'])))
+    st.write(f'현재 남은 약 {remaining}회분')
+    mode=st.segmented_control('새로 받은 양',['며칠분','몇 회분'],default='며칠분' if daily else '몇 회분',key='refill_unit')
+    amount=st.number_input('새로 받은 양 ('+('일분' if mode=='며칠분' else '회분')+')',min_value=1,max_value=10000,value=3,step=1,key='refill_amount')
+    added=int(amount)*daily if mode=='며칠분' else int(amount)
+    if mode=='며칠분' and not daily:
+        st.info('복용 시각이 없는 약은 몇 회분으로 입력하세요.');return
+    st.write(f'저장 후 남은 약 {remaining+added}회분')
+    st.caption('1회분은 한 번 먹을 양이에요. 기존에 남은 양에 더해요.')
+    if st.button('받아온 약 추가',type='primary',use_container_width=True):
+        supply_tables()
+        with database(True) as conn:
+            if PG:execute(conn,'SELECT id FROM fm_meds WHERE id=? FOR UPDATE',(m['id'],))
+            # Re-read inventory inside the transaction to avoid adding a stale count.
+            base=execute(conn,'SELECT * FROM fm_supply WHERE med_id=?',(m['id'],)).fetchone()
+            live=0
+            if base:
+                base=dict(base)
+                n=execute(conn,'SELECT COUNT(*) AS n FROM fm_logs WHERE med_id=? AND taken_at>?',(m['id'],base['updated'])).fetchone()
+                live=max(0,base['remaining']-n['n'])
+            write_supply(conn,m['id'],live+added,current['lead'] if current else 3)
+        st.session_state['supply_flash']='받아온 약을 추가했어요'
+        st.rerun()
+
+
+@st.dialog('복용 종료',width='small')
+def end_course_dialog(m):
+    st.subheader(m['name'])
+    st.write('처방받은 복용 기간이 끝났거나 의료진에게 종료 안내를 받은 경우에만 선택하세요.')
+    st.caption('약이 떨어졌다는 이유만으로 계속 먹는 약을 중단하지 마세요. 이 버튼은 종료 사실을 기록할 뿐, 중단해도 된다는 판단이 아니에요.')
+    confirmed=st.checkbox('처방된 기간이 끝났거나 의료진에게 종료 안내를 받았어요',key='end_course_confirm')
+    if st.button('복용 종료 기록',disabled=not confirmed,type='primary',use_container_width=True):
+        supply_tables()
+        with database(True) as conn:
+            execute(conn,'UPDATE fm_meds SET active=0 WHERE id=?',(m['id'],))
+            execute(conn,'DELETE FROM fm_supply WHERE med_id=?',(m['id'],))
+            execute(conn,'DELETE FROM fm_notices WHERE person_id=? AND medicine=?',(m['person_id'],m['name']))
+            execute(conn,'UPDATE fm_contact_tasks SET done=1 WHERE med_id=?',(m['id'],))
+        st.session_state['supply_flash']='복용 종료를 기록했어요. 이전 기록은 유지돼요.'
+        st.rerun()
+
+
 def supply_editor(m):
     st.markdown('### 남은 약 · 미리 알림')
     status=supply_status(m)
@@ -572,7 +619,7 @@ def save_missed(med_id, day, slot, reason, note):
             return False, '오늘의 등록된 일정만 기록할 수 있습니다.'
         if execute(conn, 'SELECT id FROM fm_logs WHERE med_id=? AND day=? AND slot=?', (med_id, day, slot)).fetchone():
             return False, '이미 복용한 기록이 있습니다. 복용 기록을 먼저 확인하세요.'
-        if reason not in ['깜빡했어요', '사정상 못 먹었어요','약이 없어요','몸이 불편해요','먹었는지 모르겠어요','다른 이유']:
+        if reason not in ['깜빡했어요', '사정상 못 먹었어요','약이 없어요','몸이 불편해요','먹었는지 모르겠어요','다른 이유','미복용 확인']:
             return False, '사유를 선택하세요.'
         execute(conn, '''INSERT INTO fm_missed (id,med_id,day,slot,reason,note,recorded_at)
             VALUES (?,?,?,?,?,?,?) ON CONFLICT(med_id,day,slot)
@@ -582,8 +629,7 @@ def save_missed(med_id, day, slot, reason, note):
 
 
 def missed_history():
-    st.subheader('📝 못 먹은 기록')
-    st.warning(MISSED_GUIDE)
+    st.subheader('못 먹은 기록')
     records = rows('''SELECT x.*,m.name AS medicine,p.name AS person FROM fm_missed x
         JOIN fm_meds m ON m.id=x.med_id JOIN fm_people p ON p.id=m.person_id
         ORDER BY x.day DESC,x.slot DESC LIMIT 100''')
@@ -592,7 +638,9 @@ def missed_history():
     for r in records:
         taken = rows('SELECT id FROM fm_logs WHERE med_id=? AND day=? AND slot=?', (r['med_id'],r['day'],r['slot']))
         st.write(f"{r['day']} {r['slot']} · {r['person']} · {r['medicine']}")
-        st.caption(f"{r['reason']} · {r['note']} · {'이후 복용 기록 있음' if taken else '복용 기록 없음'}")
+        follow=rows('SELECT guidance FROM fm_followup WHERE med_id=? AND day=? AND slot=?',(r['med_id'],r['day'],r['slot']))
+        state='이후 복용 기록 있음' if taken else '미복용 · 대처 안내 확인' if follow and follow[0]['guidance'] else '미복용 사유 저장'
+        st.caption(r['reason']+' · '+state)
         if st.button('이 사유 기록 삭제', key='delete_missed_'+r['id']):
             with database(True) as conn:
                 execute(conn, 'DELETE FROM fm_missed WHERE id=?', (r['id'],))
@@ -811,6 +859,7 @@ def home_screen(elder):
         missed_flow(elder)
     elif page=='약 보관함':
         st.subheader('약통')
+        if st.session_state.get('supply_flash'):st.success(st.session_state.pop('supply_flash'))
         st.markdown('<style>[data-testid="stVerticalBlockBorderWrapper"] h3{font-size:25px!important;font-weight:850!important;color:#153d32!important;line-height:1.35!important;}</style>',unsafe_allow_html=True)
         if st.button('가족 등록 · 삭제',icon=':material/group_add:',key='family_management'):
             registration('family')
@@ -829,12 +878,15 @@ def home_screen(elder):
                 info.markdown(f"### {safe(m['name'])}")
                 info.write(f"{m['person']} · {m['dose']}")
                 info.caption(('기한 지남 · ' if expired else '유효기간 · ')+m['expiry'])
-                supply=supply_status(m)
+                supply=supply_status(m) if m['active'] else None
                 if supply:
                     info.markdown(f"**남은 약 {supply['remaining']}회분**"+(f" · 약 {supply['days']:.1f}일분" if supply['days'] is not None else ''))
                     if supply['remaining']>0 and supply['forecast']:info.caption('소진 예상 '+supply['forecast'].strftime('%m/%d'))
-                    elif supply['remaining']==0:info.markdown('**약을 보충해 주세요**')
-                else:info.caption('남은 양 미등록')
+                    elif supply['remaining']==0:info.markdown('**남은 약이 없어요**')
+                else:info.caption('남은 양 미등록' if m['active'] else '복용 종료 · 이전 기록 유지')
+                if m['active']:
+                    if st.button('약 받아왔어요',icon=':material/add:',key='refill_'+m['id'],use_container_width=True):refill_dialog(m)
+                    if st.button('처방에 따라 복용 종료',icon=':material/task_alt:',key='end_course_'+m['id'],use_container_width=True):end_course_dialog(m)
 
                 if edit.button('',icon=':material/edit:',help='약 정보 수정',key='edit_'+m['id']):edit_medicine(m['id'])
                 if delete.button('',icon=':material/delete:',help='약 삭제',key='delete_'+m['id']):delete_medicine(m['id'])
@@ -842,8 +894,6 @@ def home_screen(elder):
         st.subheader('복용 현황')
         intake_table()
         if st.button('먹은 기록 · 오기록 취소',icon=':material/history:',use_container_width=True):history_dialog()
-        if st.button('못 먹은 약 확인',icon=':material/pill_off:',key='reason_from_history',use_container_width=True):
-            st.session_state.pop('missed_confirmation_complete',None);st.session_state.page='미복용 목록';st.rerun()
         if st.button('못 먹은 기록',icon=':material/history:',use_container_width=True):missed_records_dialog()
     else:
         st.subheader('가족')
@@ -1074,7 +1124,7 @@ def missed_flow(elder):
                  ('위 항목에 해당하지 않아요','그 외 약'),('어떤 약인지 잘 모르겠어요','모르겠어요')]
         for i,(label,group) in enumerate(choices):
             if st.button(label,key='mq_group_'+str(i),use_container_width=True):
-                st.session_state['mq_group']=group;advance('leaflet_check')
+                st.session_state['mq_group']=group;advance('leaflet_check' if st.session_state.get('mq_reason')=='깜빡했어요' else 'tailored_action')
         return
     if step=='current_symptom':
         st.subheader('어디가 불편해서 못 먹었나요?')
@@ -1086,6 +1136,8 @@ def missed_flow(elder):
                     st.session_state['mq_current_symptom']=['어지러움','메스꺼움·구토','삼키기 어려움','다른 증상'][i]
                     advance('miss_count')
         return
+    if step=='leaflet_check' and st.session_state.get('mq_reason')!='깜빡했어요':
+        advance('tailored_action');return
     if step=='leaflet_check':
         st.subheader('약 설명서에 ‘먹는 걸 잊었을 때’ 안내가 있나요?')
         st.write('이 약에 대해 의사·약사에게 따로 받은 안내도 포함해요.')
@@ -1119,7 +1171,9 @@ def missed_flow(elder):
             actions += ['누락 후에는 운전·수영 등 발작 시 위험한 활동을 피하세요.']
         if group=='파킨슨병 약':
             actions += ['넘어지지 않도록 이동을 줄이고 가족에게 도움을 요청하세요. 지연 자체가 위험할 수 있으므로 담당 진료팀에 지금 연락하세요.']
-        if has_guide:
+        if reason=='몸이 불편해요':
+            actions += ['이 약'+'을 먹은 뒤 증상이 생겼다면 다음 복용 전에 제품명·함량·증상 시작 시각을 준비해 약사나 처방 의료진에게 확인하세요. 약에 따라 중단 위험이 달라 앱이 복용·중단을 결정하지 않아요.']
+        elif has_guide:
             actions += ['설명서의 제품명·함량·제형이 내 약과 같은지 확인하고, 놓친 횟수와 경과 시간에 해당하는 지침을 따르세요.']
         else:
             actions += ['약 포장에서 제품명·함량·제형을 확인하고, 설명서의 ‘복용을 잊었을 때’를 찾아보세요. 이 정보 없이 앱은 지금 복용할지 건너뛸지 정하지 않습니다.']
@@ -1183,13 +1237,18 @@ def missed_flow(elder):
         return
 
 
+@st.dialog('못 먹은 기록',width='small')
+def missed_records_dialog():
+    followup_history()
+
+
 def followup_history():
     labels={'확인 대기':'확인 중','안내 확인 후 건너뜀':'안내 확인 후 건너뜀','안내 확인 후 복용 보고':'안내 확인 후 복용했다고 보고','기록 확인 완료':'기록·가족 확인 완료'}
     records=rows('SELECT f.*,m.name AS medicine,p.name AS person FROM fm_followup f JOIN fm_meds m ON m.id=f.med_id JOIN fm_people p ON p.id=m.person_id ORDER BY f.recorded_at DESC LIMIT 100')
     if not records:st.info('후속 조치 기록이 없습니다.')
     for r in records:
         st.write(f"{r['day']} {r['slot']} · {r['person']} · {r['medicine']}")
-        st.caption(labels.get(r['action'],r['action'])+' · '+r['source'])
+        st.caption(('대처 안내 확인 · 추가 복용 판단과 별개' if r['action']=='확인 대기' and r['guidance'] else labels.get(r['action'],r['action']))+' · '+r['source'])
         st.write(r['guidance'] or '확인 내용 미입력')
         if st.button('다시 확인하기',key='reopen_'+r['id']):
             with database(True) as conn:
@@ -1355,10 +1414,20 @@ def medicine_schedules_dialog(med,person,day,schedules):
     st.write('  /  '.join(slot for slot,done in schedules))
     logs=rows('SELECT slot FROM fm_logs WHERE med_id=? AND day=?',(med['id'],day))
     done_slots={x['slot'] for x in logs}
+    missed_by_slot={x['slot']:x for x in rows('SELECT * FROM fm_missed WHERE med_id=? AND day=?',(med['id'],day))}
+    follow_by_slot={x['slot']:x for x in rows('SELECT * FROM fm_followup WHERE med_id=? AND day=?',(med['id'],day))}
     for slot,old_done in schedules:
         with st.container(border=True):
-            st.markdown('**'+slot+(' · ✓ 복용 기록' if slot in done_slots else ' · 기록 없음')+'**')
+            missed=missed_by_slot.get(slot);follow=follow_by_slot.get(slot)
+            status='✓ 복용 기록' if slot in done_slots else '미복용 · 대처 안내 확인' if missed and follow else '미복용 기록' if missed else '확인 중' if follow else '기록 없음'
+            st.markdown('**'+slot+' · '+status+'**')
             if slot in done_slots:continue
+            if missed:
+                st.write('사유: '+missed['reason'])
+                if follow and follow['guidance']:st.write(follow['guidance'])
+                if st.button('먹었는데 기록을 잘못 남겼어요',key='correct_missed_'+med['id']+slot,use_container_width=True):
+                    st.session_state.page='미복용 목록';st.rerun()
+                continue
             eat,miss=st.columns(2)
             if eat.button('먹었어요',key='schedule_eat_'+med['id']+slot,use_container_width=True):
                 ok,msg=take(med['id'],day,slot,False)
