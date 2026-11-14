@@ -1,9 +1,7 @@
-"""가족약속 v2 — 큰 글씨 · 단계형 상황 확인 · 지속 실천 알림 · 실제 약사진.
-
-업데이트: 기존 파일을 교체하면 action_tasks/med_photos 테이블이 추가됩니다.
-기존 가족·약·복용 테이블은 삭제하지 않습니다. 알림·사진도 같은 DB에 저장합니다.
-실천 체크는 가족의 자기보고이며 앱이 실제 행동/증상 호전을 검증하지 않습니다.
-실천 완료를 누르더라도 약의 복용 완료로 자동 기록하지 않습니다.
+"""가족약속 — 원본 유지 수정판 (기존 화면/메뉴/복용 버튼 유지).
+추가: 글자 대비 보정, 약 이름 확대, 약 사진, 4개 상황 질문, 번호형 실천 안내.
+실천 체크는 본인 확인이며 증상 호전/복용 완료를 뜻하지 않습니다.
+DB에 action_tasks/med_photos 테이블만 추가하며 기존 테이블은 삭제하지 않습니다.
 
 배포 (Python 3.11 이상 권장)
 1. 이 파일과 requirements.txt를 GitHub 저장소 루트에 올립니다.
@@ -173,7 +171,6 @@ def build_plan(m, reason, certainty, symptom, supply, help_at_home):
         steps.append({"title":"확인 결과를 한곳에 남기세요", "body":"확인한 시각과 남은 수량을 메모하고 가능하면 가족에게 메시지로 보내세요. 다음 알림은 보충 복용 지시가 아닙니다."})
     return steps
 
-
 def photo_data(upload):
     from PIL import Image, ImageOps, UnidentifiedImageError
     if upload.size > 10 * 1024 * 1024:
@@ -190,20 +187,17 @@ def photo_data(upload):
     except (UnidentifiedImageError, OSError):
         raise ValueError("JPG·PNG·WEBP 사진을 선택해 주세요.")
 
-
 def save_photo(med_id, upload):
     encoded=photo_data(upload)
     with db(True) as q:
         q("""INSERT INTO med_photos VALUES (?,?) ON CONFLICT(med_id)
             DO UPDATE SET image=excluded.image""",(med_id,encoded))
 
-
 def photo_html(med_id):
     images=rows("SELECT image FROM med_photos WHERE med_id=?",(med_id,))
     if images:
         return '<img class="pill-photo" alt="등록한 실제 약 사진" src="data:image/jpeg;base64,'+images[0]['image']+'">'
     return '<div class="photo-placeholder">실제 약사진을<br>찍어보세요.</div>'
-
 
 def create_task(m,day,slot,answers,steps):
     with db(True) as q:
@@ -214,7 +208,6 @@ def create_task(m,day,slot,answers,steps):
         q("INSERT INTO action_tasks (id,member_id,med_id,day,slot,answers,steps,checked,resolved,created_at,resolved_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
           (task_id,m['member_id'],m['id'],day,slot,json.dumps(answers,ensure_ascii=False),json.dumps(steps,ensure_ascii=False),json.dumps([False]*len(steps)),0,now().isoformat(),''))
     return task_id
-
 
 def task_content(task_id):
     results=rows("SELECT t.*,m.name FROM action_tasks t JOIN meds m ON m.id=t.med_id WHERE t.id=?",(task_id,))
@@ -248,7 +241,6 @@ def task_content(task_id):
                 q("UPDATE action_tasks SET resolved=1,resolved_at=? WHERE id=?",(now().isoformat(),task_id))
         notice("실천 완료를 기록했어요. 알림을 해제했습니다.")
 
-
 @st.dialog("🔔 남아 있는 실천 알림")
 def action_center(member_id):
     pending=rows("SELECT t.id,t.day,t.slot,m.name FROM action_tasks t JOIN meds m ON m.id=t.med_id WHERE t.member_id=? AND t.resolved=0 ORDER BY t.created_at",(member_id,))
@@ -258,63 +250,6 @@ def action_center(member_id):
     ids=[t['id'] for t in pending]
     tid=st.selectbox("실천할 알림",ids,format_func=lambda x:next(f"{t['name']} · {t['day']} {t['slot']}" for t in pending if t['id']==x))
     task_content(tid)
-
-
-def guided_help(m,day,slot,reason):
-    previous=rows("SELECT id,resolved FROM action_tasks WHERE med_id=? AND day=? AND slot=?",(m['id'],day,slot))
-    if previous:
-        task_content(previous[0]['id'])
-        return
-    prefix=f"guide_{m['id']}_{day}_{slot}"
-    stage=st.session_state.get(prefix,0)
-    st.progress((stage+1)/3,text=f"상황 확인 {stage+1} / 3")
-    with st.form(prefix+str(stage)):
-        if stage==0:
-            certainty=st.radio("① 실제로 복용했는지 확인해 주세요",["확실히 안 먹었어요","먹었는지 확실하지 않아요","이미 먹은 것이 확실해요","중복·과량 복용이 의심돼요"],index=None)
-            symptom=st.radio("② 지금 몸 상태는 어떤가요?",["특별한 불편감이 없어요","가벼운 불편감이 있어요","호흡 곤란·의식 저하·심한 알레르기"],index=None)
-            submitted=st.form_submit_button("다음 →",type="primary",use_container_width=True)
-            if submitted:
-                if certainty is None or symptom is None:
-                    st.error("두 질문에 답해 주세요.")
-                else:
-                    st.session_state[prefix+'_a']={'certainty':certainty,'symptom':symptom,'reason':reason}
-                    if certainty=="중복·과량 복용이 의심돼요" or symptom=="호흡 곤란·의식 저하·심한 알레르기":
-                        answers=st.session_state[prefix+'_a']
-                        steps=build_plan(m,reason,certainty,symptom,"기한·수량을 모르겠어요","혼자 확인해야 해요")
-                        create_task(m,day,slot,answers,steps)
-                        st.rerun(scope="fragment")
-                    st.session_state[prefix]=1
-                    st.rerun(scope="fragment")
-        elif stage==1:
-            supply=st.radio("③ 지금 약의 기한·수량은 어떤가요?",["기한 내이고 수량도 있어요","없거나 수량이 부족해요","사용기한이 지났어요","기한·수량을 모르겠어요"],index=None)
-            support=st.radio("④ 함께 확인할 가족이 있나요?",["함께 확인할 가족이 있어요","혼자 확인해야 해요"],index=None)
-            if st.form_submit_button("다음 →",type="primary",use_container_width=True):
-                if supply is None or support is None:
-                    st.error("두 질문에 답해 주세요.")
-                else:
-                    st.session_state[prefix+'_b']={'supply':supply,'support':support}
-                    st.session_state[prefix]=2
-                    st.rerun(scope="fragment")
-        else:
-            a=st.session_state[prefix+'_a'];b=st.session_state[prefix+'_b']
-            st.markdown("**⑤ 마지막으로 확인해 주세요**")
-            st.write(f"• {a['certainty']}\n• {a['symptom']}\n• {b['supply']}\n• {b['support']}")
-            confirm=st.checkbox("위 답변이 지금 상황과 맞아요")
-            if st.form_submit_button("내 상황에 맞는 실천 안내 받기",type="primary",use_container_width=True):
-                if not confirm:
-                    st.error("답변을 확인한 뒤 체크해 주세요.")
-                else:
-                    steps=build_plan(m,a['reason'],a['certainty'],a['symptom'],b['supply'],b['support'])
-                    create_task(m,day,slot,{**a,**b},steps)
-                    # 미복용이 확실한 경우에만 미복용 기록. 모름/이미복용은 임의로 바꾸지 않는다.
-                    if a['certainty']=="확실히 안 먹었어요":
-                        record(m['id'],day,slot,'skipped',a['reason'])
-                    st.session_state.flash=("실천 알림을 등록했어요. 번호 순서대로 실행해 주세요.","🔔")
-                    st.rerun(scope="fragment")
-    if stage>0 and st.button("← 처음부터 다시 답하기",key=prefix+'_reset'):
-        st.session_state[prefix]=0
-        st.rerun(scope="fragment")
-    st.caption("응급 신호·과량 복용 의심은 나머지 질문을 생략하고 즉시 도움을 안내합니다.")
 
 
 def record(med_id, day, slot, status, reason=""):
@@ -371,7 +306,6 @@ h1,h2,h3,p{letter-spacing:-.035em} h3{margin:0!important;padding:.15rem 0!import
 @media(max-width:600px){.block-container{padding-top:.4rem!important} [data-testid="stHorizontalBlock"]{flex-wrap:nowrap!important}
 [data-testid="stHorizontalBlock"]>[data-testid="stColumn"]{min-width:0!important;flex:1!important}
 .stButton button{padding:.35rem .25rem;font-size:13px} .stSelectbox{font-size:14px}}
-
 /* 다크 테마가 선택돼 있어도 배경과 글자를 함께 고정해 투명/흰 글자 문제 방지 */
 :root{color-scheme:light!important;--text-color:#18273d;--background-color:#f2f5f9;--secondary-background-color:#ffffff;--primary-color:#126855}
 [data-testid="stAppViewContainer"], [data-testid="stDialog"] [role="dialog"]{background:#f2f5f9!important;color:#18273d!important}
@@ -389,13 +323,14 @@ button:disabled{background:#e5e9ef!important;color:#536175!important;opacity:1!i
 [data-testid="stDialog"] [aria-label="Close"]{color:#18273d!important}
 [data-testid="stRadio"] label,[data-testid="stCheckbox"] label{color:#18273d!important}
 .hero b{color:#fff!important}.hero small{color:#d1e5ee!important}
-.med{display:flex;gap:10px;align-items:center;min-height:83px}.med-content{flex:1;min-width:0}
+.med{display:flex;gap:10px;align-items:center;min-height:80px}.med-content{flex:1;min-width:0}
 .pill-photo{width:72px;height:72px;object-fit:cover;border-radius:12px;flex-shrink:0}
 .photo-placeholder{width:72px;height:72px;display:flex;align-items:center;justify-content:center;text-align:center;background:#e7e9ed;color:#637080;font-size:11px;line-height:1.5;border:1px dashed #aab4c0;border-radius:12px;flex-shrink:0}
 .action-step{display:flex;align-items:flex-start;gap:12px;background:#fff;border:1px solid #ccd9e5;border-radius:15px;padding:13px;margin:8px 0 3px;color:#18273d}
 .step-number{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:33px;height:33px;background:#126855;color:white;border-radius:50%;font-size:21px;font-weight:800}
 .action-step strong{font-size:18px;color:#18273d}.action-step p{font-size:15px;line-height:1.6;color:#40536a;margin:6px 0 0}
 [data-testid="stFormSubmitButton"] button{min-height:46px;border-radius:13px;font-weight:700}
+
 
 </style>""", unsafe_allow_html=True)
 
@@ -422,7 +357,7 @@ if st.session_state.get("auth") != fingerprint:
     st.stop()
 
 try:
-    initialize(DB_URL + "|v2-actions-photos")
+    initialize(DB_URL + "|minimal-actions-photos-v3")
 except Exception:
     st.error("저장소에 연결하지 못했어요. DATABASE_URL과 DB 연결 상태를 확인해 주세요. 비밀 연결 정보는 화면에 표시하지 않습니다.")
     st.stop()
@@ -478,6 +413,36 @@ def register():
                         q("INSERT INTO meds VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)", (ident(), who, name.strip(), ingredient.strip(), json.dumps(slots), expiry.isoformat(), stock, dose, gap, missed.strip(), usage.strip(), kind))
                     notice("약을 등록했어요.", "💊")
 
+def guided_help(m,day,slot,reason):
+    previous=rows("SELECT id,resolved FROM action_tasks WHERE med_id=? AND day=? AND slot=?",(m['id'],day,slot))
+    if previous:
+        task_content(previous[0]['id'])
+        return
+    st.markdown("**상황을 조금 더 확인할게요**")
+    prefix=f"guide_{m['id']}_{day}_{slot}"
+    with st.form(prefix):
+        certainty=st.selectbox("① 실제 복용 여부",["확실히 안 먹었어요","먹었는지 확실하지 않아요","이미 먹은 것이 확실해요","중복·과량 복용이 의심돼요"],index=None,placeholder="선택해 주세요")
+        symptom=st.selectbox("② 지금 몸 상태",["특별한 불편감이 없어요","가벼운 불편감이 있어요","호흡 곤란·의식 저하·심한 알레르기"],index=None,placeholder="선택해 주세요")
+        supply=st.selectbox("③ 약의 사용기한·수량",["기한 내이고 수량도 있어요","없거나 수량이 부족해요","사용기한이 지났어요","기한·수량을 모르겠어요"],index=None,placeholder="선택해 주세요")
+        support=st.selectbox("④ 함께 확인할 가족",["함께 확인할 가족이 있어요","혼자 확인해야 해요"],index=None,placeholder="선택해 주세요")
+        submitted=st.form_submit_button("답변에 맞는 실천 안내",type="primary",use_container_width=True)
+        if submitted:
+            urgent=certainty=="중복·과량 복용이 의심돼요" or symptom=="호흡 곤란·의식 저하·심한 알레르기"
+            if not urgent and any(v is None for v in (certainty,symptom,supply,support)):
+                st.error("네 가지 질문에 답해 주세요.")
+            else:
+                certainty=certainty or "먹었는지 확실하지 않아요"
+                symptom=symptom or "특별한 불편감이 없어요"
+                supply=supply or "기한·수량을 모르겠어요"
+                support=support or "혼자 확인해야 해요"
+                answers=dict(reason=reason,certainty=certainty,symptom=symptom,supply=supply,support=support)
+                steps=build_plan(m,reason,certainty,symptom,supply,support)
+                create_task(m,day,slot,answers,steps)
+                st.toast("실천 알림을 등록했어요.",icon="🔔")
+                st.rerun(scope="fragment")
+    st.caption("호흡 곤란·의식 저하 또는 과량 복용 의심이면 질문을 기다리지 말고 119에 연락하세요.")
+
+
 @st.dialog("🔎 복용 확인", width="small")
 def detail(med_id):
     result = rows("SELECT * FROM meds WHERE id=? AND active=1", (med_id,))
@@ -486,7 +451,7 @@ def detail(med_id):
         return
     m = result[0]
     day = now().date().isoformat()
-    st.markdown(f'<h2 style="font-size:28px;color:#18273d">{safe(m["name"])}</h2>',unsafe_allow_html=True)
+    st.subheader("💊 " + m["name"])
     if m["usage_note"]:
         st.caption(m["usage_note"])
     st.caption(f"사용기한 {m['expiry']} · 재고 {m['stock']} · 1회 {m['dose']}개")
@@ -682,7 +647,7 @@ def dashboard(member_id, large):
     nav=st.columns(2)
     if nav[0].button(f"🛡 안전 {len(alerts)}",use_container_width=True,key="safe_btn",disabled=not member_id):
         cabinet(member_id)
-    if nav[1].button("📷 약사진 · 보관함",use_container_width=True,key="cabinet_btn",disabled=not member_id):
+    if nav[1].button("🧰 상비약 · 기록",use_container_width=True,key="cabinet_btn",disabled=not member_id):
         cabinet(member_id)
     if not regular:
         st.info("➕ 가족과 매일 복용할 약을 등록하세요.")
@@ -700,7 +665,7 @@ def dashboard(member_id, large):
             marks.append(f"{icon} {slot}")
         badge=' <span class="chip">기한 지남</span>' if m["expiry"]<day else ""
         st.markdown(f'<div class="med">{photo_html(m["id"])}<div class="med-content"><b>{safe(m["name"])}</b>{badge}<br><small>{"　".join(marks)}</small></div></div>',unsafe_allow_html=True)
-        if st.button("복용 · 미복용 확인  ›",key="open_"+m["id"],use_container_width=True):
+        if st.button("복용 확인  ›",key="open_"+m["id"],use_container_width=True):
             detail(m["id"])
     if max_page>0:
         l,c,r=st.columns([1,2,1])
