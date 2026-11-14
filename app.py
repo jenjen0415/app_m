@@ -196,6 +196,19 @@ def take(med_id, day, slot, duplicate_confirmed=False):
     return True, '복용을 기록했습니다. 같은 회차는 다시 복용하지 마세요.'
 
 
+def supply_fields(key, existing=None):
+    enabled=st.checkbox('남은 약 · 미리 알림 설정',value=existing is not None,key=key+'_enabled')
+    left,right=st.columns(2)
+    amount=left.number_input('남은 양 (회분)',min_value=0,max_value=100000,value=existing['remaining'] if existing else 0,step=1,key=key+'_remaining')
+    lead=right.number_input('소진 며칠 전 알림',min_value=1,max_value=30,value=existing['lead'] if existing else 3,step=1,key=key+'_lead')
+    st.caption('1회분 = 한 번 먹을 양 · 하루 복용 횟수로 며칠분인지 계산해요.')
+    return enabled,int(amount),int(lead)
+
+
+def write_supply(conn,med_id,amount,lead):
+    execute(conn,'INSERT INTO fm_supply VALUES (?,?,?,?) ON CONFLICT(med_id) DO UPDATE SET remaining=excluded.remaining,updated=excluded.updated,remind_days=excluded.remind_days',(med_id,amount,now().isoformat(),lead))
+
+
 @st.dialog('가족 · 약 등록', width='small')
 def registration(mode):
     if mode == 'family':
@@ -251,6 +264,8 @@ def registration(mode):
             stock = st.checkbox('상비약 목록에도 표시')
             times = ','.join(st.multiselect('매일 복용 시각', [f'{h:02d}:{minute:02d}' for h in range(24) for minute in range(60)],help='처방된 시각만 선택하세요. 상비약만 보관할 때는 비워두세요.'))
             gap = st.number_input('최소 복용 간격 (시간, 처방에 있는 경우만)', min_value=0.0, max_value=168.0, value=0.0, step=0.5, help='0은 간격 검사를 하지 않음. 입력한 동일 주성분 약 기록에도 적용됩니다. 의학적으로 안전한 간격을 앱이 결정하지 않습니다.')
+            supply_tables()
+            supply_on,supply_amount,supply_lead=supply_fields('register_supply')
             submit = st.form_submit_button('약 등록', use_container_width=True)
         if submit:
             parts = [v.strip() for v in times.split(',') if v.strip()]
@@ -267,9 +282,11 @@ def registration(mode):
             else:
                 with database(True) as conn:
                     for owner in owners:
+                        new_med_id=str(uuid.uuid4())
                         execute(conn, '''INSERT INTO fm_meds
                         (id,person_id,name,ingredient,dose,expiry,times,gap,stock,active)
-                        VALUES (?,?,?,?,?,?,?,?,?,1)''', (str(uuid.uuid4()), owner['id'], name.strip(), ingredient.strip(), dose.strip(), expiry.isoformat(), json.dumps(sorted(set(parts))), gap, int(stock)))
+                        VALUES (?,?,?,?,?,?,?,?,?,1)''', (new_med_id, owner['id'], name.strip(), ingredient.strip(), dose.strip(), expiry.isoformat(), json.dumps(sorted(set(parts))), gap, int(stock)))
+                        if supply_on:write_supply(conn,new_med_id,supply_amount,supply_lead)
                 st.rerun()
 
 
@@ -404,7 +421,7 @@ def edit_medicine(med_id):
     records=rows('SELECT * FROM fm_meds WHERE id=?',(med_id,))
     if not records:st.info('약을 찾을 수 없습니다.');return
     m=records[0]
-    st.caption('이 약을 등록한 가족의 정보만 바뀝니다. 기존 복용 기록의 시각은 유지됩니다.')
+    existing_supply=supply_status(m)
     with st.form('edit_med_'+med_id):
         name=st.text_input('약 이름',value=m['name'],max_chars=100)
         ingredient=st.text_input('주성분',value=m['ingredient'],max_chars=100)
@@ -414,6 +431,7 @@ def edit_medicine(med_id):
         gap=st.number_input('최소 복용 간격 (시간)',min_value=0.0,max_value=168.0,value=float(m['gap']),step=0.5)
         stock=st.checkbox('상비약',value=bool(m['stock']))
         active=st.checkbox('복용 일정 사용',value=bool(m['active']))
+        supply_on,supply_amount,supply_lead=supply_fields('edit_supply_'+med_id,existing_supply)
         submit=st.form_submit_button('변경 저장',use_container_width=True)
     if submit:
         values=[v.strip() for v in times.split(',') if v.strip()]
@@ -422,9 +440,10 @@ def edit_medicine(med_id):
             st.warning('복용 시각을 08:00, 20:00 형식으로 입력하세요.');return
         with database(True) as conn:
             execute(conn,'UPDATE fm_meds SET name=?,ingredient=?,dose=?,expiry=?,times=?,gap=?,stock=?,active=? WHERE id=?',(name.strip(),ingredient.strip(),dose.strip(),expiry.isoformat(),json.dumps(sorted(set(values))),gap,int(stock),int(active),med_id))
+            if supply_on:write_supply(conn,med_id,supply_amount,supply_lead)
+            else:execute(conn,'DELETE FROM fm_supply WHERE med_id=?',(med_id,))
         st.rerun()
 
-    supply_editor(m)
 
 
 @st.dialog('🗑️ 약 삭제', width='small')
@@ -756,6 +775,19 @@ def home_screen(elder):
     .st-key-bottom_nav button [data-testid="stIconMaterial"]{font-size:30px!important;width:32px!important;height:32px!important;color:#17483e!important;}
     .st-key-bottom_nav button{min-height:60px!important;}
     </style>""",unsafe_allow_html=True)
+    st.markdown("""<style>
+    [role="dialog"]{background:#F7FAF8!important;color:#173C35!important;border-radius:26px!important;}
+    [role="dialog"] h2,[role="dialog"] h3{color:#173C35!important;}
+    [role="dialog"] [data-testid="stNumberInput"] input,
+    [role="dialog"] [data-testid="stNumberInput"] button,
+    [role="dialog"] [data-baseweb="input"],
+    [role="dialog"] [data-baseweb="base-input"]{background:#FFFFFF!important;color:#173C35!important;-webkit-text-fill-color:#173C35!important;}
+    [role="dialog"] [data-testid="stFormSubmitButton"] button{background:#DCEFE5!important;color:#173C35!important;border:1px solid #B0D6C3!important;border-radius:15px!important;}
+    [role="dialog"] [data-testid="stFormSubmitButton"] button *{color:#173C35!important;-webkit-text-fill-color:#173C35!important;}
+    [data-testid="stVerticalBlockBorderWrapper"]{border-color:#DAE7E0!important;border-radius:20px!important;}
+    [data-testid="stAppViewContainer"]{background:#F7FAF8!important;}
+    .st-key-medicine_tiles button p{font-size:17px!important;font-weight:750!important;}
+    </style>""",unsafe_allow_html=True)
     page=st.session_state.get('page','오늘 약 먹기')
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
@@ -797,6 +829,13 @@ def home_screen(elder):
                 info.markdown(f"### {safe(m['name'])}")
                 info.write(f"{m['person']} · {m['dose']}")
                 info.caption(('기한 지남 · ' if expired else '유효기간 · ')+m['expiry'])
+                supply=supply_status(m)
+                if supply:
+                    info.markdown(f"**남은 약 {supply['remaining']}회분**"+(f" · 약 {supply['days']:.1f}일분" if supply['days'] is not None else ''))
+                    if supply['remaining']>0 and supply['forecast']:info.caption('소진 예상 '+supply['forecast'].strftime('%m/%d'))
+                    elif supply['remaining']==0:info.markdown('**약을 보충해 주세요**')
+                else:info.caption('남은 양 미등록')
+
                 if edit.button('',icon=':material/edit:',help='약 정보 수정',key='edit_'+m['id']):edit_medicine(m['id'])
                 if delete.button('',icon=':material/delete:',help='약 삭제',key='delete_'+m['id']):delete_medicine(m['id'])
     elif page=='기록':
@@ -1203,7 +1242,7 @@ def remove_family_dialog(person_id, name):
         with database(True) as conn:
             execute(conn,'INSERT INTO fm_hidden_people(person_id) VALUES (?) ON CONFLICT(person_id) DO NOTHING',(person_id,))
             execute(conn,'UPDATE fm_meds SET active=0 WHERE person_id=?',(person_id,))
-            execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
+            execute(conn,'SELECT 1')
             execute(conn,'UPDATE fm_contact_tasks SET done=1 WHERE person_id=?',(person_id,))
         st.session_state['pending_family_selection']=''
         st.session_state['family_removed_notice']=True
@@ -1261,17 +1300,21 @@ def intake_table():
     else:st.info('이 날짜에 남긴 기록이 없습니다.')
 @st.dialog('🔔 복용 알림', width='small')
 def dose_notifications(person_id, person_name, completed, total):
-    st.markdown(f'**👤 {safe(person_name)}**')
+    st.markdown(f'**{safe(person_name)}의 알림**')
     supplies=supply_alerts(person_id)
     for item in supplies:
-        with st.container(border=True):
-            st.markdown('**'+safe(item['medicine'])+' · 약 보충**')
+        skey='supply_notice_'+str(supplies.index(item))
+        st.markdown(f"<style>.st-key-{skey}{{background:{'#E7F5EF' if item['unread'] else '#FFFFFF'}!important;border:1px solid #D5E6DC!important;border-radius:18px!important;padding:16px!important;}}</style>",unsafe_allow_html=True)
+        with st.container(key=skey):
+            st.markdown(('**새 알림 · **' if item['unread'] else '')+'**'+safe(item['medicine'])+' · 약 보충**')
             if item['remaining']==0:st.write('남은 약이 없어요. 약을 보충해 주세요.')
             else:
                 st.write(f"약 {item['remaining']}회분 남음 · 약 {item['days']:.1f}일분" if item['days'] is not None else f"약 {item['remaining']}회분 남음")
                 if item['forecast']:st.write('소진 예상 '+item['forecast'].strftime('%m/%d %H:%M')+' · 미리 약을 준비하세요.')
-        with database(True) as conn:
-            execute(conn,'INSERT INTO fm_supply_read VALUES (?) ON CONFLICT(id) DO NOTHING',(item['id'],))
+            if item['unread'] and st.button('알림 확인했어요',key='read_'+skey,use_container_width=True):
+                with database(True) as conn:
+                    execute(conn,'INSERT INTO fm_supply_read VALUES (?) ON CONFLICT(id) DO NOTHING',(item['id'],))
+                st.session_state['open_notices_'+person_id]=True;st.rerun()
     tasks=rows('SELECT * FROM fm_contact_tasks WHERE person_id=? ORDER BY day DESC,slot DESC',(person_id,))
     for task in tasks:
         with st.container(border=True):
@@ -1285,12 +1328,21 @@ def dose_notifications(person_id, person_name, completed, total):
                     st.session_state['mq_back_stack']=[]
                     st.session_state.page='놓친 약 확인'
                     st.rerun()
-    st.caption('복용 여부를 기록해 주세요. 추가 복용 안내가 아닙니다.')
-    notices=rows('SELECT * FROM fm_notices WHERE person_id=? ORDER BY day DESC,slot DESC LIMIT 100',(person_id,))
+    notices=rows('SELECT * FROM fm_notices WHERE person_id=? ORDER BY is_read ASC,day DESC,slot DESC LIMIT 100',(person_id,))
     for n in notices:
-        with st.container(border=True):
-            st.markdown(f"**{safe(n['medicine'])}**")
-            st.write(f"{n['day']} · {n['slot']}  |  기록 없음")
+        fresh=not n['is_read']
+        key='notice_'+re.sub('[^a-zA-Z0-9]','_',n['id'])
+        st.markdown(f"<style>.st-key-{key}{{background:{'#E7F5EF' if fresh else '#FFFFFF'}!important;border:1px solid {'#B6DBCB' if fresh else '#E2EAE6'}!important;border-radius:18px!important;padding:16px!important;}}</style>",unsafe_allow_html=True)
+        with st.container(key=key):
+            st.markdown(('**새 알림 · **' if fresh else '')+'**'+safe(n['medicine'])+'**')
+            st.write(f"{n['day']} · {n['slot']}에 먹을 약")
+            st.write('복용 기록이 비어 있어요. 먹었는지 확인해 주세요.')
+            if st.button('복용 기록 확인하기',key='open_'+key,use_container_width=True):
+                with database(True) as conn:execute(conn,'UPDATE fm_notices SET is_read=1 WHERE id=?',(n['id'],))
+                st.session_state.page='미복용 목록';st.rerun()
+            if fresh and st.button('알림 확인했어요',key='read_'+key,use_container_width=True):
+                with database(True) as conn:execute(conn,'UPDATE fm_notices SET is_read=1 WHERE id=?',(n['id'],))
+                st.session_state['open_notices_'+person_id]=True;st.rerun()
 
     if not notices and not tasks and not supplies:st.info('알림이 없습니다.')
 
@@ -1479,6 +1531,8 @@ def dashboard(person_id, elder):
                 continue
             notice_id=f"{person_id}|{today}|{entry['m']['id']}|{entry['time']}"
             execute(conn,'INSERT INTO fm_notices VALUES (?,?,?,?,?,0) ON CONFLICT(id) DO NOTHING',(notice_id,person_id,today,entry['time'],entry['m']['name']))
+    with database(True) as conn:
+        execute(conn,"DELETE FROM fm_notices WHERE EXISTS (SELECT 1 FROM fm_logs l JOIN fm_meds m ON m.id=l.med_id WHERE fm_notices.id=m.person_id||'|'||l.day||'|'||l.med_id||'|'||l.slot)")
     unread=rows('SELECT id FROM fm_notices WHERE person_id=? AND is_read=0',(person_id,))
     pending_tasks=rows('SELECT id FROM fm_contact_tasks WHERE person_id=? AND done=0',(person_id,))
     unread_count=len(unread)+len(pending_tasks)+sum(x['unread'] for x in supply_alerts(person_id))
@@ -1500,7 +1554,7 @@ def dashboard(person_id, elder):
         with st.container(key='notification_only'):
             if st.button(str(unread_count) if unread_count else '',icon=':material/notifications_active:' if unread_count else ':material/notifications:',help=f'안 읽은 알림 {unread_count}건',key='rail_notifications'):
                 with database(True) as conn:
-                    execute(conn,'UPDATE fm_notices SET is_read=1 WHERE person_id=?',(person_id,))
+                    execute(conn,'SELECT 1')
                 st.session_state['open_notices_'+person_id]=True
                 st.rerun(scope='fragment')
         if st.button('',icon=':material/pill_off:',help='못 먹은 약 확인',key='rail_missed'):
