@@ -568,6 +568,19 @@ def main():
     if not st.session_state.get('launch_seen_onyak_v1', False):
         st.session_state.launch_seen_onyak_v1 = True
         st.html('<style> .launch-screen{position:fixed;inset:0;background:#176f70;z-index:999990; display:flex;align-items:center;justify-content:center; animation:launch-out 4s ease-out forwards;pointer-events:none;} .launch-screen svg{width:96px;height:96px;display:block;flex:none;overflow:visible;} @keyframes launch-out{0%,75%{opacity:1;visibility:visible;}100%{opacity:0;visibility:hidden;}} @media(prefers-reduced-motion:reduce){.launch-screen{animation-duration:.15s;}} .launch-content{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}.launch-progress{width:44px;height:44px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;animation:launch-spin .85s linear infinite;box-sizing:border-box}.launch-status{color:#fff!important;-webkit-text-fill-color:#fff!important;font:500 15px sans-serif;letter-spacing:.2px;text-align:center}@keyframes launch-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.launch-progress{animation:none;border-color:#fff}}</style><div class="launch-screen" aria-label="앱 시작"><div class="launch-content"><img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjgiIGhlaWdodD0iNjgiIHZpZXdCb3g9IjAgMCA2OCA2OCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSLqsIDsobEg7JW9IOyngO2CtOydtCDroZzqs6AiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+ICA8cGF0aCBkPSJNMTggMzJMMzQgMThMNTAgMzIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4gPHBhdGggZD0iTTIzIDMxVjQ4QzIzIDUwIDI1IDUyIDI3IDUySDQxQzQzIDUyIDQ1IDUwIDQ1IDQ4VjMxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMy41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4gPHJlY3QgeD0iMjkiIHk9IjMwIiB3aWR0aD0iMTAiIGhlaWdodD0iMjAiIHJ4PSI1IiB0cmFuc2Zvcm09InJvdGF0ZSgzNSAzNCA0MCkiIGZpbGw9IiNmZmYiLz4gPHBhdGggZD0iTTMwIDM3TDM4IDQzIiBzdHJva2U9IiMxNzZmNzAiIHN0cm9rZS13aWR0aD0iMiIvPiA8L3N2Zz4=" alt="집과 알약 로고" style="width:96px;height:96px;display:block;max-width:none;object-fit:contain" /><div class="launch-name" style="color:#ffffff;font-size:32px;font-weight:800;letter-spacing:2px;line-height:1.3;text-align:center">온약<span style="display:block;font-size:12px;letter-spacing:5px;margin-top:8px;font-weight:600;color:#ffffff">ONYAK</span></div><div class="launch-progress" role="status" aria-label="시작 화면 표시 중"></div><div class="launch-status">앱을 시작하고 있어요</div></div></div>')
+    with st.container(key='accessibility_controls'):
+        if st.button('큰 글씨',icon=':material/text_increase:',key='global_large',help='큰 글씨 켜기·끄기'):
+            st.session_state['elder_mode']=not st.session_state.get('elder_mode',False);st.rerun()
+        if st.button('음성 안내',icon=':material/volume_up:',key='global_voice'):
+            meds=rows('SELECT m.*,p.name AS person FROM fm_meds m JOIN fm_people p ON p.id=m.person_id WHERE m.active=1')
+            voice_dialog('오늘 복용 일정. '+'. '.join(m['person']+' '+m['name']+' '+m['dose']+' '+', '.join(json.loads(m['times'])) for m in meds))
+    st.markdown("""<style>
+    .st-key-accessibility_controls{position:fixed!important;right:6px!important;top:25%!important;width:76px!important;z-index:999;background:#fff;border:1px solid #c5d8d0;border-radius:18px;padding:4px!important;}
+    .st-key-accessibility_controls button{width:66px!important;min-width:0!important;min-height:72px!important;height:auto!important;padding:8px 2px!important;display:flex!important;flex-direction:column!important;gap:6px!important;}
+    .st-key-accessibility_controls button p{font-size:13px!important;line-height:1.4!important;white-space:nowrap!important;word-break:keep-all!important;}
+    .block-container{padding-right:94px!important;}
+    [data-baseweb="select"]>div,[data-baseweb="select"] input,[data-baseweb="select"] span{background:#fff!important;color:#163047!important;-webkit-text-fill-color:#163047!important;}
+    </style>""",unsafe_allow_html=True)
     elder = st.session_state.get('elder_mode',False)
     if elder:
         st.markdown('<style>.block-container button{height:auto!important;min-height:70px!important;white-space:normal!important;}.block-container button p,.block-container [data-testid="stMarkdownContainer"] p{font-size:26px!important;line-height:1.6!important;overflow-wrap:anywhere!important;}.block-container [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;}.block-container .badge{font-size:24px!important;white-space:normal!important;height:auto!important;}</style>',unsafe_allow_html=True)
@@ -857,6 +870,18 @@ def home_screen(elder):
     [data-testid="stDateInput"] input,[data-testid="stDateInput"] [data-baseweb="input"] {background:#FFFFFF!important;color:#173C35!important;-webkit-text-fill-color:#173C35!important;}
     </style>""",unsafe_allow_html=True)
     page=st.session_state.get('page','오늘 약 먹기')
+
+    if elder:
+        st.markdown("""<style>
+        .block-container [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;gap:14px!important;}
+        .block-container [data-testid="stColumn"]{min-width:min(100%,180px)!important;flex:1 1 180px!important;}
+        .block-container button{height:auto!important;min-height:68px!important;max-width:100%!important;white-space:normal!important;}
+        .block-container button p{white-space:normal!important;overflow-wrap:anywhere!important;line-height:1.5!important;}
+        .block-container [data-baseweb="select"]>div{min-height:66px!important;height:auto!important;}
+        .block-container [data-baseweb="select"] span{font-size:24px!important;line-height:1.5!important;}
+        div.st-key-accessibility_controls button p{font-size:13px!important;line-height:1.4!important;white-space:nowrap!important;}
+        div.st-key-accessibility_controls button{padding:8px 2px!important;min-height:72px!important;}
+        </style>""",unsafe_allow_html=True)
     if page=='홈':page='오늘 약 먹기'
     active = '오늘' if page in ['오늘 약 먹기','놓친 약 확인'] else '약통' if page=='약 보관함' else '기록' if page=='기록' else '가족'
     with st.container(key='bottom_nav'):
@@ -1716,22 +1741,6 @@ def dashboard(person_id, elder):
     </style>""",unsafe_allow_html=True)
     if st.session_state.pop('open_notices_'+person_id,False):
         dose_notifications(person_id,pname,len(done),len(slots))
-    st.markdown("""<style>
-    .st-key-today_tools{width:92px!important;}
-    .st-key-today_voice_read button{width:82px!important;min-width:82px!important;height:auto!important;min-height:72px!important;display:flex!important;flex-direction:column!important;justify-content:center!important;align-items:center!important;gap:6px!important;padding:10px 5px!important;}
-    .st-key-today_voice_read button p{white-space:nowrap!important;word-break:keep-all!important;writing-mode:horizontal-tb!important;font-size:15px!important;line-height:1.3!important;margin:0!important;}
-    </style>""",unsafe_allow_html=True)
-    st.markdown("""<style>
-    .st-key-today_tools{position:fixed!important;right:8px!important;top:22%!important;width:84px!important;padding:4px!important;z-index:100;background:#fff;}
-    .st-key-today_tools button{width:74px!important;min-width:74px!important;height:auto!important;min-height:76px!important;display:flex!important;flex-direction:column!important;align-items:center!important;gap:5px!important;padding:8px 2px!important;}
-    .st-key-today_tools button p{font-size:14px!important;white-space:nowrap!important;writing-mode:horizontal-tb!important;line-height:1.4!important;}
-    .block-container{padding-right:100px!important;}
-    </style>""",unsafe_allow_html=True)
-    with st.container(key='today_tools'):
-        if st.button('큰 글씨',icon=':material/text_increase:',key='rail_large',help='큰 글씨 켜기·끄기'):
-            st.session_state['elder_mode']=not st.session_state.get('elder_mode',False);st.rerun()
-        if st.button('음성 안내',icon=':material/volume_up:',key='rail_read'):
-            voice_dialog(pname+'님의 오늘 일정. '+'. '.join(e['time']+' '+e['m']['name']+' '+e['m']['dose'] for e in slots))
 if __name__ == '__main__':
     try:
         main()
