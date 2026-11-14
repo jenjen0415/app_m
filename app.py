@@ -1255,20 +1255,31 @@ def missed_records_dialog():
 
 def render_action_steps(text):
     parts=[x.strip() for x in re.split(r'\n+',text or '') if x.strip()]
-    concise={
-    '누락 후에는 운전·수영 등 발작 시 위험한 활동을 피하세요.':'운전·수영은 피하세요. 발작 시 위험할 수 있어요.',
-    '설명서의 제품명·함량·제형이 내 약과 같은지 확인하고, 놓친 횟수와 경과 시간에 해당하는 지침을 따르세요.':'설명서의 제품명·함량·제형을 확인하세요. 내 약과 같다면 놓친 횟수·시간에 맞는 안내를 따르세요.',
-    '놓친 횟수·예정 시각·마지막 실제 복용 시각과 약 포장을 준비해 담당 약사 또는 진료팀에 지체 없이 확인하세요. 확인 없이 계속 기다리거나 다음 회차까지 무조건 중단하지 마세요.':'약 포장과 놓친 횟수·예정 시각·마지막 복용 시각을 준비해 지금 약사·진료팀에 확인하세요. 확인 없이 계속 기다리거나 임의로 중단하지 마세요.',
-    '누락분을 보충하려고 두 회분을 한꺼번에 먹지 마세요. 의료진의 별도 지시가 있다면 그 지시를 따르세요.':'두 회분을 한꺼번에 먹지 마세요. 의료진이 따로 지시했다면 그 안내를 따르세요.'}
+    rules=[
+      (('운전','발작'), '피할 활동', '운전과 수영은 피하세요.', '발작이 생기면 위험한 활동이에요.'),
+      (('두 회분',), '추가 복용', '놓친 약까지 두 번 먹을 양을 한꺼번에 먹지 마세요.', '의사나 약사에게 따로 안내받았다면 그 안내를 따르세요.'),
+      (('설명서의 제품명',), '설명서 확인', '설명서가 지금 먹는 약의 것인지 확인하세요.', '약 이름·함량·약 형태를 확인한 뒤, 놓친 횟수와 시간에 맞는 안내를 읽으세요.'),
+      (('놓친 횟수','약 포장','마지막'), '지금 확인', '약사나 담당 진료팀에 복용 방법을 확인하세요.', '약 포장을 준비하고, 몇 번 놓쳤는지와 마지막으로 먹은 시각을 알려주세요.'),
+      (('어지러움이 가라앉을',), '어지러울 때', '어지러움이 가라앉을 때까지 누워 쉬세요.', '일어날 때는 천천히 움직이고, 운전·사다리·기계 사용은 피하세요.'),
+      (('억지로 삼키',), '삼키기 어려울 때', '약을 억지로 삼키거나 임의로 부수지 마세요.', '물도 삼키기 어렵다면 신속히 진료받으세요.'),
+      (('구토했다면',), '구토했을 때', '약을 먹은 시각과 토한 시각을 적어두세요.', '약이 얼마나 흡수됐는지 알 수 없으므로 임의로 다시 먹지 마세요.'),
+    ]
     seen=set()
-    for part in parts:
-        part=re.sub(r'^\d+[.)]\s*','',part)
-        part=concise.get(part,part)
-        if part in seen:continue
-        seen.add(part)
-        head,sep,tail=part.partition('. ')
-        st.markdown('**'+head+('.' if sep else '')+'**')
-        if tail:st.write(tail)
+    for raw in parts:
+        raw=re.sub(r'^\d+[.)]\s*','',raw)
+        match=next((r for r in rules if all(k in raw for k in r[0])),None)
+        if match:
+            _,label,action,note=match
+            if label in seen:continue
+            seen.add(label)
+            st.markdown('**'+label+'**')
+            st.markdown('- **'+action+'**')
+            st.markdown('- '+note)
+            if label=='지금 확인':st.markdown('- 확인하지 않은 채 계속 기다리거나, 약을 임의로 중단하지 마세요.')
+        else:
+            # Unmapped saved instructions are preserved verbatim, but always as bullets.
+            for sentence in re.split(r'(?<=[.!?])\s+',raw):
+                if sentence.strip():st.markdown('- '+sentence.strip())
 
 
 def followup_history():
