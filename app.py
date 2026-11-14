@@ -581,6 +581,13 @@ def main():
     .block-container{padding-right:94px!important;}
     [data-baseweb="select"]>div,[data-baseweb="select"] input,[data-baseweb="select"] span{background:#fff!important;color:#163047!important;-webkit-text-fill-color:#163047!important;}
     </style>""",unsafe_allow_html=True)
+    st.markdown("""<style>
+    div.st-key-accessibility_controls div.st-key-global_large button,
+    div.st-key-accessibility_controls div.st-key-global_voice button{box-sizing:border-box!important;width:66px!important;max-width:66px!important;min-height:78px!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:5px!important;overflow:hidden!important;}
+    div.st-key-accessibility_controls div.st-key-global_large button [data-testid="stMarkdownContainer"] p,
+    div.st-key-accessibility_controls div.st-key-global_voice button [data-testid="stMarkdownContainer"] p{font-size:12px!important;line-height:18px!important;white-space:nowrap!important;word-break:keep-all!important;overflow-wrap:normal!important;letter-spacing:0!important;margin:0!important;}
+    div.st-key-accessibility_controls button [data-testid="stIconMaterial"]{font-size:23px!important;line-height:26px!important;flex-shrink:0!important;}
+    </style>""",unsafe_allow_html=True)
     elder = st.session_state.get('elder_mode',False)
     if elder:
         st.markdown('<style>.block-container button{height:auto!important;min-height:70px!important;white-space:normal!important;}.block-container button p,.block-container [data-testid="stMarkdownContainer"] p{font-size:26px!important;line-height:1.6!important;overflow-wrap:anywhere!important;}.block-container [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important;}.block-container .badge{font-size:24px!important;white-space:normal!important;height:auto!important;}</style>',unsafe_allow_html=True)
