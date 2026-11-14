@@ -43,6 +43,16 @@ import streamlit.components.v1 as components
 
 TZ = ZoneInfo('Asia/Seoul')
 st.set_page_config(page_title='온약 ONYAK', page_icon='💊', layout='centered', initial_sidebar_state='collapsed')
+st.markdown('''<style>
+[data-testid="stLinkButton"] a,
+[data-testid="stLinkButton"] a:visited,
+[data-testid="stLinkButton"] a:hover {
+ background:#F3F7F5 !important;color:#142D26 !important;
+ border:1px solid #78958A !important;opacity:1 !important;
+}
+[data-testid="stLinkButton"] a * {color:#142D26 !important;opacity:1 !important;}
+</style>''',unsafe_allow_html=True)
+
 
 
 def setting(key, default=''):
@@ -852,7 +862,7 @@ def missed_flow(elder):
         for i,label in enumerate(['깜빡했어요','약이 없어요','몸이 불편해요','먹었는지 모르겠어요','다른 이유']):
             if st.button(label,key='mq_reason_'+str(i),use_container_width=True):
                 st.session_state['mq_reason']=label
-                advance('unwell' if i==2 else 'uncertain' if i==3 else 'home_action')
+                advance('safety_check')
         return
     if step=='unwell':
         st.subheader('어떤 불편함이 있나요?')
@@ -877,7 +887,7 @@ def missed_flow(elder):
             target=st.session_state['mq_target'];m=target['m']
             st.text_area('복사해서 보내세요',value=f"{m['person']} · {m['name']} / {target['slot']} 일정\n증상: {symptom}\n{notes}\n복용 여부 확인과 도움을 부탁해요.",height=130)
         st.caption('위 행동은 증상에 대한 일반적인 안전 조치이며, 해당 약의 복용·중단 지시는 아닙니다. 증상이 지속되거나 심해지면 의료진에게 상담하세요.')
-        if st.button('복용법 확인으로',use_container_width=True):advance('know')
+        if st.button('상황 확인 계속',use_container_width=True):advance('dose_certainty')
         return
     if step=='uncertain':
         st.subheader('먹었는지 먼저 확인하세요')
@@ -886,39 +896,94 @@ def missed_flow(elder):
         if st.button('아직 모르겠어요 · 저장',use_container_width=True):finish()
         if st.button('안 먹은 것을 확인했어요',use_container_width=True):advance('know')
         return
-    if step=='home_action':
-        reason=st.session_state.get('mq_reason','깜빡했어요')
+    if step in ('home_action','safety_check'):
+        st.subheader('지금 이런 증상이 있나요?')
+        st.write('숨쉬기 어려움 · 의식 저하 · 갑자기 말이 어눌해지거나 한쪽 팔다리 힘이 빠짐')
+        if st.button('있어요',use_container_width=True):advance('urgent_help')
+        if st.button('없어요',use_container_width=True):advance('dose_certainty')
+        return
+    if step=='urgent_help':
+        st.subheader('지금은 응급 도움이 먼저예요')
+        st.write('1. 119에 전화하고 주변 사람을 부르세요.')
+        st.write('2. 직접 운전하지 마세요. 약 포장과 증상 시작 시각을 준비하세요.')
+        st.write('3. 의식이 흐리거나 삼키기 어려우면 약·물·음식을 먹이지 마세요.')
+        st.link_button('119 전화','tel:119',use_container_width=True)
+        return
+    if step=='dose_certainty':
+        st.subheader('이 회차를 안 먹은 것이 확실한가요?')
+        for i,label in enumerate(['안 먹은 것이 확실해요','먹었는지 모르겠어요']):
+            if st.button(label,key='mq_cert_'+str(i),use_container_width=True):
+                st.session_state['mq_certainty']=label
+                advance('miss_count' if i==0 else 'uncertain')
+        return
+    if step=='miss_count':
+        st.subheader('연속으로 몇 회를 놓쳤나요?')
+        for i,label in enumerate(['이번 1회','2회 이상','정확히 모르겠어요']):
+            if st.button(label,key='mq_count_'+str(i),use_container_width=True):
+                st.session_state['mq_count']=label;advance('medicine_group')
+        return
+    if step=='medicine_group':
+        st.subheader('어떤 종류의 약인가요?')
+        for i,label in enumerate(['인슐린','뇌전증·경련 약','파킨슨병 약','항응고제','피임약','주 1회 약·항암제·이식 후 약','그 외 약','모르겠어요']):
+            if st.button(label,key='mq_group_'+str(i),use_container_width=True):
+                st.session_state['mq_group']=label;advance('current_symptom')
+        return
+    if step=='current_symptom':
+        st.subheader('현재 불편한 증상이 있나요?')
+        for i,label in enumerate(['없어요','어지러움','메스꺼움·구토','삼키기 어려움','다른 증상']):
+            if st.button(label,key='mq_current_'+str(i),use_container_width=True):
+                st.session_state['mq_current_symptom']=label;advance('leaflet_check')
+        return
+    if step=='leaflet_check':
+        st.subheader('이 약의 누락 복용 지침이 있나요?')
+        st.write('약 설명서의 ‘복용을 잊었을 때’ 또는 본인에게 받은 의료진 지침')
+        for i,label in enumerate(['있고, 내 상황에 적용돼요','없거나 적용되는지 모르겠어요']):
+            if st.button(label,key='mq_leaflet_'+str(i),use_container_width=True):
+                st.session_state['mq_leaflet']=i==0;advance('tailored_action')
+        return
+    if step=='tailored_action':
         target=st.session_state['mq_target'];med=target['m']
-        st.subheader('집에서 먼저 할 일')
-        scheduled=datetime.combine(date.fromisoformat(target['day']),datetime.strptime(target['slot'],'%H:%M').time(),TZ)
-        elapsed=max(0,int((now()-scheduled).total_seconds()/60))
-        st.write(f"예정 시각 {target['slot']} · {elapsed//60}시간 {elapsed%60}분 경과")
-        upcoming=[datetime.combine(now().date()+timedelta(days=d),datetime.strptime(t,'%H:%M').time(),TZ) for d in (0,1) for t in json.loads(med['times'])]
-        future=[t for t in upcoming if t>now()]
-        if future:st.write('다음 등록 시각 '+min(future).strftime('%m/%d %H:%M'))
+        group=st.session_state.get('mq_group','모르겠어요')
+        symptom=st.session_state.get('mq_current_symptom','없어요')
+        count=st.session_state.get('mq_count','정확히 모르겠어요')
+        reason=st.session_state.get('mq_reason','깜빡했어요')
+        has_guide=st.session_state.get('mq_leaflet',False)
+        st.subheader(med['name'])
+        st.write(f"{med['person']} · {target['slot']} 회차 · {count}")
+        st.markdown('### 지금 할 일')
+        actions=[]
+        if symptom=='어지러움':
+            actions += ['어지러움이 가라앉을 때까지 누워 쉬고, 일어날 때 천천히 움직이세요. 운전·사다리·기계 사용은 피하세요.']
+        elif symptom=='삼키기 어려움':
+            actions += ['억지로 삼키거나 약을 임의로 부수지 마세요. 물도 삼키기 어렵다면 신속히 진료를 받으세요.']
+        elif symptom=='메스꺼움·구토':
+            actions += ['구토했다면 약을 먹은 시각과 토한 시각을 적으세요. 흡수된 양을 알 수 없어 임의로 다시 복용하지 마세요.']
+        elif symptom=='다른 증상':
+            actions += ['증상 시작 시각과 변화, 마지막 복용 시각을 적으세요. 심해지거나 계속되면 진료를 받으세요.']
         if reason=='약이 없어요':
-            st.write('1. 약 봉투·보관함에서 남은 수량을 확인하세요.')
-            st.write('2. 가족에게 같은 제품·함량의 내 약이 남아 있는지 찾아달라고 부탁하세요. 다른 사람의 처방약은 나눠 먹지 마세요.')
-            st.write('3. 남은 약이 없으면 보충할 목록에 약 이름을 적어두세요. 임의 대체 복용은 피하세요.')
+            actions += ['약 봉투와 보관함에서 본인 약의 남은 수량을 확인하세요. 다른 사람의 처방약이나 임의의 대체약은 먹지 마세요.']
+        if group=='인슐린':
+            actions += ['혈당계가 있으면 혈당을 확인하고, 앞으로 24시간 평소보다 자주 측정하세요. 본인의 당뇨 관리 지침을 따르세요. 누락분을 두 배로 주사하지 마세요.']
+        if group=='뇌전증·경련 약':
+            actions += ['누락 후에는 운전·수영 등 발작 시 위험한 활동을 피하세요.']
+        if group=='파킨슨병 약':
+            actions += ['넘어지지 않도록 이동을 줄이고 가족에게 도움을 요청하세요. 지연 자체가 위험할 수 있으므로 담당 진료팀에 지금 연락하세요.']
+        if has_guide:
+            actions += ['설명서의 제품명·함량·제형이 내 약과 같은지 확인하고, 놓친 횟수와 경과 시간에 해당하는 지침을 따르세요.']
         else:
-            st.write('1. 약 봉투의 ‘복용을 잊었을 때’ 안내를 확인하세요.')
-            st.write('2. 마지막 복용 기록과 다음 예정 시각을 확인하세요. 시각만으로 추가 복용 여부를 결정하지 마세요.')
-            st.write('3. 놓친 양을 두 배로 보충하지 마세요. 다음 회차를 임의로 앞당기지 마세요.')
-            st.caption('약별 설명서가 우선입니다. 특히 인슐린·항응고제·항경련제 등은 공통 시간 규칙을 적용하지 않습니다.')
-        picture=rows('SELECT image_b64 FROM fm_photos WHERE med_id=?',(med['id'],))
-        if picture:
-            if st.button('약·포장 사진 보기',use_container_width=True):
-                import base64
-                st.image(base64.b64decode(picture[0]['image_b64']),use_container_width=True)
-        last=rows('SELECT taken_at FROM fm_logs WHERE med_id=? ORDER BY taken_at DESC LIMIT 1',(med['id'],))
-        st.caption('마지막 기록: '+(datetime.fromisoformat(last[0]['taken_at']).astimezone(TZ).strftime('%m/%d %H:%M') if last else '없음 · 미복용 확정 아님'))
-        with database(True) as conn:
-            execute(conn,'CREATE TABLE IF NOT EXISTS fm_help (med_id TEXT PRIMARY KEY, guidance TEXT NOT NULL, source TEXT NOT NULL, phone TEXT NOT NULL, updated TEXT NOT NULL)')
-        guides=rows('SELECT guidance,source FROM fm_help WHERE med_id=?',(med['id'],))
-        if guides and guides[0]['guidance']:
-            st.info(guides[0]['guidance']+' · '+guides[0]['source'])
-        st.link_button('안내 출처','https://medlineplus.gov/ency/patientinstructions/000600.htm')
-        if st.button('복용법 확인하기',type='primary',use_container_width=True):advance('know')
+            actions += ['약 포장에서 제품명·함량·제형을 확인하고, 설명서의 ‘복용을 잊었을 때’를 찾아보세요. 이 정보 없이 앱은 지금 복용할지 건너뛸지 정하지 않습니다.']
+        if count!='이번 1회' or group!='그 외 약':
+            actions += ['놓친 횟수·예정 시각·마지막 실제 복용 시각과 약 포장을 준비해 담당 약사 또는 진료팀에 지체 없이 확인하세요. 확인 없이 계속 기다리거나 다음 회차까지 무조건 중단하지 마세요.']
+        elif not has_guide:
+            actions += ['설명서에도 지침이 없으면 다음 복용 결정 전에 약사에게 제품명·놓친 시각·다음 예정 시각을 알려 확인하세요.']
+        actions += ['누락분을 보충하려고 두 회분을 한꺼번에 먹지 마세요. 의료진의 별도 지시가 있다면 그 지시를 따르세요.']
+        for i,text in enumerate(actions,1):st.write(f'{i}. {text}')
+        st.link_button('안내 출처 · NHS SPS','https://www.sps.nhs.uk/articles/advising-on-missed-or-delayed-doses-of-medicines/',use_container_width=True)
+        if symptom=='어지러움':st.link_button('어지러움 대처 · NHS','https://www.nhs.uk/conditions/dizziness/',use_container_width=True)
+        if has_guide:
+            if st.button('확인한 복용법 기록',type='primary',use_container_width=True):advance('instruction')
+        else:
+            if st.button('추가 확인할 내용 남기기',type='primary',use_container_width=True):advance('contact')
         return
     if step=='know':
         st.subheader('놓쳤을 때 복용법을 아나요?')
